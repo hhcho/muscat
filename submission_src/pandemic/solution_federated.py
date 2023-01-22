@@ -1,10 +1,3 @@
-'''
-Federated solution based on:
-https://github.com/drivendataorg/pets-prize-challenge-runtime/blob/main/examples_src/pandemic/solution_federated.py
-
-More information about the data format:
-https://www.drivendata.org/competitions/141/uk-federated-learning-2-pandemic-forecasting-federated/page/643/
-'''
 import os
 import subprocess
 from dataclasses import dataclass
@@ -18,46 +11,86 @@ from flwr.server import ClientManager
 from flwr.server.client_proxy import ClientProxy
 from loguru import logger
 
-# GO_EXEC = 'pets-private'
+import pandas as pd
+import numpy as np
+from scipy.sparse import coo_matrix
+from sklearn.preprocessing import MinMaxScaler
+from tqdm import tqdm 
 
-# LOOKAHEAD = 7
+from .muscat_model import MusCATModel
 
+NUM_DAYS_FOR_PRED = 2
+IMPUTE = True
+NEG_TO_POS_RATIO = 3
+NUM_ITERS = 10
+NUM_BATCHES = 10
+USE_ADAM = True
+ADAM_LEARN_RATE = 0.005
+SGD_LEARN_RATE = 0.01
 
-# def to_parameters_ndarrays(numerator: float, denominator: float) -> List[np.ndarray]:
-#     """Utility function to convert SirModel parameters to List[np.ndarray] used by
-#     Flower's NumPyClient for transferring model parameters.
-#     """
-#     return [np.array([numerator, denominator])]
+TRAIN_ROUND_NAMES = [None, # Round number starts at 1
+    'unify locations',
+    'compute infection stats and exposure loads',
+    'construct training features and scaler',
+    'model learning first iter',
+    *['model learning iter'] * (NUM_ITERS - 2),
+    'model learning last iter'
+]
 
-
-# def from_parameters_ndarrays(parameters: List[np.ndarray]) -> Tuple[float, float]:
-#     """Utility function to convert SirModel parameters from List[np.ndarray] used by
-#     Flower's NumPyClient for transferring model parameters.
-#     """
-#     numerator, denominator = parameters[0]
-#     return numerator, denominator
-
-
-# def get_model_parameters(model: SirModel) -> List[np.ndarray]:
-#     """Gets the paramters of a SirModel model as List[np.ndarray] used by Flower's
-#     NumPyClient for transferring model parameters.
-#     """
-#     return to_parameters_ndarrays(model.numerator, model.denominator)
-
-
-# def set_model_parameters(model: SirModel, parameters: List[np.ndarray]) -> SirModel:
-#     """Sets the parameters of a SirModel model from a List[np.ndarray] used by Flower's
-#     NumPyClient for transferring model parameters."""
-#     numerator, denominator = from_parameters_ndarrays(parameters)
-#     model.set_params(numerator=numerator, denominator=denominator)
-#     return model
-
+TEST_ROUND_NAMES = [None, # Round number starts at 1
+    'compute infection stats and exposure loads',
+    'construct test features and predict',
+]
 
 def run(*args: str):
     """ Runs Go subprocess with specified args """
     exec_path = os.path.join(os.path.dirname(__file__), 'petchal')
     subprocess.run([exec_path, *args], check=True)
 
+def ndarrays_to_fit_configuration(round_num: int, arrays: List[np.ndarray], clients: List[ClientProxy]
+) -> List[Tuple[ClientProxy, FitIns]]:
+    fit_ins = fl.common.FitIns(fl.common.ndarrays_to_parameters(arrays), {"round": round_num})
+    return [(client, fit_ins) for client in clients]
+
+def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path):
+    
+    id_file = cache_dir / "unique_pids.npy"
+    mat_file = cache_dir / "disease_outcome_matrix.npy"
+
+    if id_file.exists() and mat_file.exists():
+        logger.info("Loading cached training labels and id map...")
+
+        Ytrain = np.load(mat_file)
+
+        uid = np.load(id_file)
+        id_map = {v: i for i, v in enumerate(uid)}
+
+    else:
+
+        logger.info("Constructing training labels...")
+
+        distrain = pd.read_csv(disease_outcome_data_path)
+
+        uid = np.unique(distrain["pid"])
+        id_map = {v: i for i, v in enumerate(uid)}
+        
+        state_map = {"S":0, "I":1, "R":2}
+
+        distrain_nz = distrain.loc[distrain["state"] != "S"]
+
+        I, J = distrain_nz["pid"], distrain_nz["day"]
+        I = np.array([id_map[v] for v in I])
+        V = np.array([state_map[s] for s in distrain_nz["state"]], dtype=np.int8)
+
+        Ytrain = np.array(coo_matrix((V, (I, J)), shape=(len(uid), distrain["day"].max() + 1)).todense())
+        Ytrain = Ytrain[:,1:]
+
+        logger.info(f"Saving training labels ({Ytrain.shape}) and id map to cache...")
+
+        np.save(cache_dir / "unique_pids.npy", uid)
+        np.save(cache_dir / "disease_outcome_matrix.npy", Ytrain)
+
+    return Ytrain, id_map
 
 def train_client_factory(
     cid: str,
@@ -116,7 +149,7 @@ def train_client_factory(
 
 
 @dataclass
-class TrainClient(fl.client.Client):
+class TrainClient(fl.client.NumPyClient):
     """Custom Flower NumPyClient class for training."""
     cid: str
     person_data_path: Path
@@ -131,20 +164,22 @@ class TrainClient(fl.client.Client):
     def __post_init__(self):
         """ Start Go client process for processing later """
         # self.num_examples = pd.read_csv(self.disease_outcome_data_path).shape[0]
-        self.num_examples = 1
+        self.num_examples = 1 # TODO: replace with real info
 
 
-    def _deserialize_file(self, name: str) -> FitRes:
-        with open(name, 'rb') as out:
-            return FitRes(
-                status=Status(Code.OK, message=''),
-                parameters=Parameters([out.read()], ''),
-                num_examples=self.num_examples,
-                metrics={},
-            )
+    # TODO: Update for NumPyClient
+    # def _deserialize_file(self, name: str) -> FitRes:
+    #     with open(name, 'rb') as out:
+    #         return FitRes(
+    #             status=Status(Code.OK, message=''),
+    #             parameters=Parameters([out.read()], ''),
+    #             num_examples=self.num_examples,
+    #             metrics={},
+    #         )
 
-
-    def fit(self, ins: FitIns) -> FitRes:
+    def fit(
+        self, parameters: List[np.ndarray], config: dict
+    ) -> Tuple[List[np.ndarray], int, dict]:
         """Train the provided parameters using the locally held dataset.
 
         Parameters
@@ -168,23 +203,166 @@ class TrainClient(fl.client.Client):
             bool, bytes, float, int, or str. It can be used to communicate
             arbitrary values back to the server.
         """
-        # TODO provide real implementation
 
-        iter_round = int(ins.config['round'])
-        logger.info(f"Running fit for round {iter_round}...")
-        if iter_round == 1:
-            out_path = os.path.join(self.client_dir, 'keygen_out')
-            run('keygen', out_path, "Client")
-            return self._deserialize_file(out_path)
+        round_num = int(config['round'])
+        round_name = TRAIN_ROUND_NAMES[round_num]
 
-        return self._deserialize_file('/dev/null')
-        # dummy implementation:
-        # """Fit model on partitioned dataset. Server is not passing any meaningful
-        # parameters or configuration. Returned fitted model parameters back to server."""
-        # self.model.fit(self.disease_outcome_df)
-        # return get_model_parameters(self.model), self.disease_outcome_df.shape[0], {}
-        # return [], self.num_examples, {}
+        logger.info(f">>>>> TrainClient: fit round {round_num} ({round_name})")
 
+        if round_name == 'unify locations':
+
+            actassign = pd.read_csv(self.activity_location_assignment_data_path)
+
+            max_res = actassign.loc[actassign["lid"]>1000000000]["lid"].max() - 1000000001
+            max_actloc = actassign.loc[actassign["lid"]<1000000000]["lid"].max()
+        
+            return [np.array([max_res]), np.array([max_actloc])], 0, {}
+        
+        elif round_name == 'compute infection stats and exposure loads':
+
+            logger.info(f"Params: {parameters}")
+
+            max_res, max_actloc = parameters
+
+            actassign = pd.read_csv(self.activity_location_assignment_data_path)
+
+            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+
+            model = MusCATModel()
+
+            duration_cnt = model.fit_disease_progression(Ytrain)
+
+            new_vec = np.zeros(10) # Max duration of 10 days
+            max_ind = min(len(duration_cnt), len(new_vec))
+            new_vec[:max_ind] = duration_cnt[:max_ind]
+            duration_cnt = new_vec
+
+            symptom_cnt, recov_cnt = model.fit_symptom_development(Ytrain)
+
+            le_res_act = actassign.loc[actassign["lid"] > 1000000000]
+            le_other_act = actassign.loc[actassign["lid"] < 1000000000]
+
+            eloads_pop = (Ytrain == 1).sum(axis = 0)
+
+            eloads_res = np.zeros((Ytrain.shape[1], max_res + 1), dtype=np.float32)
+
+            eloads_actloc = np.zeros((Ytrain.shape[1], max_actloc + 1), dtype=np.float32)
+            
+            for day in tqdm(range(Ytrain.shape[1])):
+                infected = Ytrain[:,day] == 1
+
+                pids = np.array([id_map[v] for v in le_res_act["pid"]])
+                val = infected[pids] * le_res_act["duration"]/3600
+                I = np.zeros(len(le_res_act), dtype=int)
+                J = le_res_act["lid"] - 1000000001
+                
+                eloads_res[day,:] = coo_matrix((val, (I, J)), shape=(1, max_res + 1)).toarray()[0]
+            
+                pids = np.array([id_map[v] for v in le_other_act["pid"]])
+                val = infected[pids] * le_other_act["duration"]/3600
+                I = np.zeros(len(le_other_act), dtype=int)
+                J = le_other_act["lid"] - 1
+                
+                eloads_actloc[day,:] = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
+
+            return [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc], 0, {}
+            
+        elif round_name == 'construct training features and scaler':
+
+            duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc = parameters
+
+            agg_data = {"duration_cnt":duration_cnt,
+                        "symptom_cnt":symptom_cnt,
+                        "recov_cnt":recov_cnt,
+                        "eloads_pop":eloads_pop,
+                        "eloads_res":eloads_res,
+                        "eloads_actloc":eloads_actloc}
+
+            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+
+            person = pd.read_csv(self.person_data_path)
+            actassign = pd.read_csv(self.activity_location_assignment_data_path)
+            popnet = pd.read_csv(self.population_network_data_path)
+
+            model = MusCATModel()
+            
+            model.fit_disease_progression(Ytrain, agg_data)
+            model.fit_symptom_development(Ytrain, agg_data)
+
+            model.setup_features(person, actassign, popnet, id_map)
+            
+            infected = (Ytrain == 1).transpose()
+
+            train_feat, train_label = model.get_train_feat_all_days(infected, Ytrain, 
+                NUM_DAYS_FOR_PRED, IMPUTE, NEG_TO_POS_RATIO, 
+                agg_data, id_map)
+
+            # Shuffle data instances
+            rp = np.random.permutation(train_feat.shape[0])
+            train_feat = train_feat[rp]
+            train_label = train_label[rp]
+
+            model.weights = np.zeros(1 + train_feat.shape[1])
+            model.center = np.zeros(train_feat.shape[1])
+            model.scale = np.zeros(train_feat.shape[1])
+
+            model.save(self.client_dir, is_fed=True)
+            np.save(self.client_dir / "train_feat.npy", train_feat)
+            np.save(self.client_dir / "train_label.npy", train_label)
+
+            feat_sum = train_feat.sum(axis=0)
+            feat_sqsum = (train_feat**2).sum(axis=0)
+            feat_count = train_feat.shape[0]
+
+            return [feat_sum, feat_sqsum, feat_count], 0, {}
+
+        elif round_name == 'model learning first iter' or round_name == 'model learning iter' or round_name == 'model learning last iter':
+
+            # Load model
+            model = MusCATModel()
+            model.load(self.client_dir, is_fed=True)
+            
+            # If first iter compute feature centers and scales
+            if round_name == 'model learning first iter':
+                feat_sum, feat_sqsum, feat_count = parameters
+                model.center = feat_sum / feat_count
+                model.scale = np.sqrt((feat_sqsum - (feat_sum**2)) / feat_count)
+            else: # If not first iter, then apply gradient update and save model
+                gradient_sum, sample_count = parameters
+                model.weights -= SGD_LEARN_RATE * (gradient_sum / sample_count)
+
+                model.save(self.client_dir, is_fed=True)
+
+            # Skip gradient calculation if last iteration
+            if round_name == 'model learning last iter':
+                return [], 0, {}
+
+            # Load data
+            train_feat = np.load(self.client_dir / "train_feat.npy")
+            train_label = np.load(self.client_dir / "train_label.npy")
+            
+            # Standardize features
+            train_feat -= model.center[np.newaxis,:]
+            train_feat /= model.scale[np.newaxis,:]
+
+            # Sample a batch and compute gradient
+            batch_index = round_num % NUM_BATCHES
+            batch_size = int(train_feat.shape[0] / NUM_BATCHES)
+            batch_start = batch_index * batch_size
+            batch_end = min(train_feat.shape[0], batch_start + batch_size)
+
+            batch_feat = train_feat[batch_start:batch_end]
+            batch_label = train_label[batch_start:batch_end]
+
+            gradient_sum, sample_count = model.compute_gradient_sum(batch_feat, batch_label)
+
+            return [gradient_sum, sample_count], 0, {}
+
+        else:
+            logger.info(f"Unimplemented round {round_num} ({round_name})")
+
+        # Default return values
+        return [], self.num_examples, {}
 
 def train_strategy_factory(
     server_dir: Path,
@@ -204,9 +382,11 @@ def train_strategy_factory(
         (Strategy): Instance of Flower Strategy.
         (int): Number of federated learning rounds to execute.
     """
+
     training_strategy = TrainStrategy(server_dir=server_dir)
-    num_rounds = 1
-    logger.info(f">>>>> initialized TrainStrategy, num_round: {num_rounds}")
+    num_rounds = len(TRAIN_ROUND_NAMES) - 1
+
+    logger.info(f">>>>> initialized TrainStrategy, num_rounds: {num_rounds}")
     return training_strategy, num_rounds
 
 
@@ -233,12 +413,10 @@ class TrainStrategy(fl.server.strategy.Strategy):
             If parameters are returned, then the server will treat these as the
             initial global model parameters.
         """
-        # TODO replace with real implementation
-        # pass byte array(s) (if any) here
-        params = Parameters([b'123'], '')
-        logger.info(f">>>>> TrainStrategy: initialize_parameters: {params}")
-        return params
 
+        logger.info(f">>>>> TrainStrategy: initialize_parameters")
+
+        return fl.common.ndarrays_to_parameters([])
 
     def configure_fit(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager
@@ -262,22 +440,38 @@ class TrainStrategy(fl.server.strategy.Strategy):
             is not included in this list, it means that this `ClientProxy`
             will not participate in the next round of federated learning.
         """
-        logger.info(f">>>>> TrainStrategy: configure_fit round {server_round}")
+        round_num = server_round
+        round_name = TRAIN_ROUND_NAMES[round_num]
+        
+        logger.info(f">>>>> TrainStrategy: configure_fit round {round_num} ({round_name})")
 
         clients = list(client_manager.all().values())
+        params = fl.common.parameters_to_ndarrays(parameters)
 
-        if server_round == 1:
-            out_path = os.path.join(self.client_dir, 'keygen_out')
-            run('keygenInit', out_path, "Server")
+        if round_name == 'unify locations':
+            pass
+        elif round_name == 'compute infection stats and exposure loads':
 
-            return self._deserialize_file(out_path)
-            empty_fit_ins = FitIns(Parameters([], ''), { 'round': 1 })
-            return [(client, empty_fit_ins) for client in clients]
+            # Provide max_res and max_actloc to all clients
+            return ndarrays_to_fit_configuration(round_num, params, clients)
 
-        # run([GO_EXEC, 'keygen', 'server'], check=True)
+        elif round_name == 'construct training features and scaler':
 
-        return []
+            # Provide various aggregated counts to all clients
+            return ndarrays_to_fit_configuration(round_num, params, clients)
 
+        elif round_name == 'model learning first iter' or round_name == 'model learning iter':
+
+            # Provide feature statistics to all clients
+            return ndarrays_to_fit_configuration(round_num, params, clients)
+
+        elif  round_name == 'model learning last iter':
+            pass
+        else:
+            logger.info(f"Unimplemented round {round_num} ({round_name})")
+
+        # Default configuration: pass nothing
+        return ndarrays_to_fit_configuration(round_num, [], clients)
 
     def aggregate_fit(
         self, server_round: int, results: List[Tuple[ClientProxy, FitRes]], failures
@@ -310,46 +504,71 @@ class TrainStrategy(fl.server.strategy.Strategy):
             results) then the server will no update the previous model
             parameters, the updates received in this round are discarded, and
             the global model parameters remain the same.
+        metrics : dict
         """
-        logger.info(">>>>> TrainStrategy: aggregate_fit")
+        
+        round_num = server_round
+        round_name = TRAIN_ROUND_NAMES[round_num]
+
+        logger.info(f">>>>> TrainStrategy: aggregate_fit round {round_num} ({round_name})")
+
         if len(failures) > 0:
             raise Exception(f"Client fit round had {len(failures)} failures.")
 
+        # results is List[Tuple[ClientProxy, FitRes]]
+        # convert FitRes to List[List[np.ndarray]]
+        fit_res = [
+            fl.common.parameters_to_ndarrays(fit_res.parameters)
+            for _, fit_res in results
+        ]
 
-        # TODO provide real implementation
-        if server_round == 1:
-            clientInputsIndex = 0
-            #save all pk shares in current directory?
-            for clientProxy, fit_res in results:
-                self._serialize_file("clientPkShare"+str(clientInputsIndex), fit_res.parameters)
-            run('keygenAggregate', "", "Server")
+        if round_name == 'unify locations':
 
+            max_res = np.array([res[0] for res in fit_res]).max()
+            max_actloc = np.array([res[1] for res in fit_res]).max()
+            
+            params = fl.common.ndarrays_to_parameters([max_res, max_actloc])            
+            return params, {}
 
-        # # results is List[Tuple[ClientProxy, FitRes]]
-        # # convert FitRes to List[np.ndarray]
-        # client_parameters_list_of_ndarrays = [
-        #     fl.common.parameters_to_ndarrays(fit_res.parameters)
-        #     for _, fit_res in results
-        # ]
-        # # get numerators and denominators out of List[np.ndarray]
-        # client_numerators, client_denominators = zip(
-        #     *[
-        #         from_parameters_ndarrays(params_list_of_ndarrays)
-        #         for params_list_of_ndarrays in client_parameters_list_of_ndarrays
-        #     ]
-        # )
+        elif round_name == 'compute infection stats and exposure loads':
 
-        # # aggregate by summing running numerator and denominator sums
-        # numerator = sum(client_numerators)
-        # denominator = sum(client_denominators)
+            duration_cnt = np.sum([res[0] for res in fit_res], axis=0)
+            symptom_cnt = np.sum([res[1] for res in fit_res], axis=0)
+            recov_cnt = np.sum([res[2] for res in fit_res], axis=0)
+            eloads_pop = np.sum([res[3] for res in fit_res], axis=0)
+            eloads_res = np.sum([res[4] for res in fit_res], axis=0)
+            eloads_actloc = np.sum([res[5] for res in fit_res], axis=0)
 
-        # convert back to List[np.ndarray] then Parameters dataclass to send to clients
-        # parameters = fl.common.ndarrays_to_parameters(
-        #     to_parameters_ndarrays(numerator=numerator, denominator=denominator)
-        # )
-        # return parameters, {}
+            params = fl.common.ndarrays_to_parameters(
+                [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc])
+            return params, {}
+            
+        elif round_name == 'construct training features and scaler':
+            
+            feat_sum = np.sum([res[0] for res in fit_res], axis=0)
+            feat_sqsum = np.sum([res[1] for res in fit_res], axis=0)
+            feat_count = np.sum([res[2] for res in fit_res], axis=0)
+
+            params = fl.common.ndarrays_to_parameters(
+                [feat_sum, feat_sqsum, feat_count])
+            return params, {}
+
+        elif round_name == 'model learning first iter' or round_name == 'model learning iter':
+
+            gradient = np.sum([res[0] for res in fit_res], axis=0)
+            sample_count = np.sum([res[1] for res in fit_res], axis=0)
+            
+            params = fl.common.ndarrays_to_parameters(
+                [gradient, sample_count])
+            return params, {}
+        
+        elif round_name == 'model learning last iter':
+            pass            
+        else:
+            logger.info(f"Unimplemented round {round_num} ({round_name})")
+
+        # Default return values
         return None, {}
-
 
     def configure_evaluate(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager
@@ -374,7 +593,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
             `ClientProxy` will not participate in the next round of federated
             evaluation.
         """
-        # TODO replace with real implementation
+
         logger.info(">>>>> TrainStrategy: configure_evaluate")
         return []
 
@@ -408,7 +627,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
             The aggregated evaluation result. Aggregation typically uses some variant
             of a weighted average.
         """
-        # TODO replace with real implementation
+
         logger.info(">>>>> TrainStrategy: aggregate_evaluate")
         return None, {}
 
@@ -434,21 +653,15 @@ class TrainStrategy(fl.server.strategy.Strategy):
             The evaluation result, usually a Tuple containing loss and a
             dictionary containing task-specific metrics (e.g., accuracy).
         """
-        # TODO provide real implementation
 
-        # # Write model to disk. No actual evaluation.
-        # # server_round=0 is evaluates an initial centralized model.
-        # # We don't initialize one, so we do nothing.
-        # if server_round > 0:
-        #     numerator, denominator = from_parameters_ndarrays(
-        #         fl.common.parameters_to_ndarrays(parameters)
-        #     )
-        #     model = SirModel(numerator=numerator, denominator=denominator)
-        #     checkpoint_name = f"model-{server_round:02}.json"
-        #     model.save(self.server_dir / checkpoint_name)
-        #     logger.info(f"Model checkpoint {checkpoint_name} saved to disk by server.")
+        # Write model to disk if last round. No actual evaluation.
 
         logger.info(">>>>> TrainStrategy: evaluate")
+
+        if server_round == len(TRAIN_ROUND_NAMES) - 1:
+            # model.save(self.server_dir)
+            logger.info(">>>>> TrainStrategy: TODO: save model")
+
         return None
 
 
@@ -501,16 +714,7 @@ def test_client_factory(
     Returns:
         (Union[Client, NumPyClient]): Instance of Flower Client or NumPyClient.
     """
-    # model = SirModel()
-    # disease_outcome_df = pd.read_csv(disease_outcome_data_path)
-    # preds_format_df = pd.read_csv(preds_format_path, index_col="pid")
-    # return TestClient(
-    #     cid=cid,
-    #     model=model,
-    #     disease_outcome_df=disease_outcome_df,
-    #     preds_format_df=preds_format_df,
-    #     preds_path=preds_dest_path,
-    # )
+    
     return TestClient(
         cid=cid,
         person_data_path=person_data_path,
@@ -527,7 +731,7 @@ def test_client_factory(
 
 
 @dataclass
-class TestClient(fl.client.Client):
+class TestClient(fl.client.NumPyClient):
     """Custom Flower NumPyClient class for test."""
     cid: str
     person_data_path: Path
@@ -540,22 +744,6 @@ class TestClient(fl.client.Client):
     client_dir: Path
     preds_format_path: Path
     preds_dest_path: Path
-
-    # def __init__(
-    #     self,
-    #     cid: str,
-    #     model: SirModel,
-    #     disease_outcome_df: pd.DataFrame,
-    #     preds_format_df: pd.DataFrame,
-    #     preds_path: Path,
-    # ):
-    #     super().__init__()
-    #     self.cid = cid
-    #     self.model = model
-    #     self.disease_outcome_df = disease_outcome_df
-    #     self.preds_format_df = preds_format_df
-    #     self.preds_path = preds_path
-
 
     def evaluate(self, ins: EvaluateIns) -> EvaluateRes:
         """Evaluate the provided parameters using the locally held dataset.
@@ -587,7 +775,6 @@ class TestClient(fl.client.Client):
         extended format (int, float, float, Dict[str, Scalar]) have been
         deprecated and removed since Flower 0.19.
         """
-        # TODO provide real implementation
 
         # Make predictions on the test split. Use model parameters from server.
         # set_model_parameters(self.model, parameters)
@@ -599,13 +786,13 @@ class TestClient(fl.client.Client):
         res = EvaluateRes(
             status=Status(Code.OK, message=''),
             loss=0,
-            # parameters=Parameters([out.read()], ''),
-            num_examples=10, #self.num_examples,
+            parameters=Parameters([], ''),
+            num_examples=self.num_examples,
             metrics={},
         )
+        
         logger.info(f">>>>> TestClient: evaluate res: {res}")
         return res
-
 
 
 def test_strategy_factory(
@@ -627,7 +814,7 @@ def test_strategy_factory(
         (int): Number of federated learning rounds to execute.
     """
     test_strategy = TestStrategy(server_dir=server_dir)
-    num_rounds = 1
+    num_rounds = len(TEST_ROUND_NAMES) - 1
     return test_strategy, num_rounds
 
 
@@ -672,20 +859,14 @@ class TestStrategy(fl.server.strategy.Strategy):
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, FitIns]]:
         """Do nothing and return empty list. We don't need to fit clients for test."""
-        # TODO provider real implementation ?
-        logger.info(f">>>>> TestStrategy: configure_fit round {server_round}")
         return []
-
 
     def aggregate_fit(
         self, server_round: int, results: List[Tuple[ClientProxy, FitRes]],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], dict]:
         """Do nothing and return empty results. No fit results to aggregate for test."""
-        # TODO provider real implementation ?
-        logger.info(">>>>> TestStrategy: aggregate_fit")
         return None, {}
-
 
     def configure_evaluate(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,

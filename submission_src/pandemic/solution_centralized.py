@@ -54,7 +54,7 @@ def fit(
 
     model = MusCATModel()
 
-    model.setup_features(Ytrain, person, actassign, popnet)
+    model.setup_features(person, actassign, popnet)
 
     model.fit(Ytrain, NUM_DAYS_FOR_PRED, IMPUTE,
         NEG_TO_POS_RATIO, BATCH_SIZE, NUM_EPOCHS, USE_ADAM,
@@ -91,7 +91,7 @@ def predict(
     preds_format_df = pd.read_csv(preds_format_path)
 
     logger.info("Setting up features...")
-    model.setup_features(Ytrain, person, actassign, popnet)
+    model.setup_features(person, actassign, popnet)
 
     logger.info("Computing predictions...")
     pred = model.predict(Ytrain)
