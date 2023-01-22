@@ -2,7 +2,7 @@ package mpc
 
 import (
 	"encoding/binary"
-	"github.com/dinvlad/pets-private/crypto"
+	"github.com/hhcho/petchal/crypto"
 	"time"
 
 	mpc_core "github.com/hhcho/mpc-core"

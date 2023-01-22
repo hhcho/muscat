@@ -1,7 +1,7 @@
 package mpc
 
 import (
-	"github.com/dinvlad/pets-private/crypto"
+	"github.com/hhcho/petchal/crypto"
 	"math/big"
 
 	mpc_core "github.com/hhcho/mpc-core"

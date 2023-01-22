@@ -55,7 +55,7 @@ from loguru import logger
 
 def run(*args: str):
     """ Runs Go subprocess with specified args """
-    exec_path = os.path.join(os.path.dirname(__file__), 'pets-private')
+    exec_path = os.path.join(os.path.dirname(__file__), 'petchal')
     subprocess.run([exec_path, *args], check=True)
 
 

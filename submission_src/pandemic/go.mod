@@ -1,4 +1,4 @@
-module github.com/dinvlad/pets-private
+module github.com/hhcho/petchal
 
 go 1.19
 

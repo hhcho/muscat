@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"github.com/aead/chacha20/chacha"
-	"github.com/dinvlad/pets-private/mpc"
+	"github.com/hhcho/petchal/mpc"
 	"github.com/hhcho/frand"
 	"github.com/ldsec/lattigo/v2/ckks"
 	"github.com/ldsec/lattigo/v2/dckks"

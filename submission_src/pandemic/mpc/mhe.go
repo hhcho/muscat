@@ -2,7 +2,7 @@ package mpc
 
 import (
 	"fmt"
-	"github.com/dinvlad/pets-private/crypto"
+	"github.com/hhcho/petchal/crypto"
 	"runtime"
 	"sort"
 	"sync"

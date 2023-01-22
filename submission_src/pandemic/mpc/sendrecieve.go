@@ -3,7 +3,7 @@ package mpc
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/dinvlad/pets-private/crypto"
+	"github.com/hhcho/petchal/crypto"
 
 	mpc_core "github.com/hhcho/mpc-core"
 	"github.com/ldsec/lattigo/v2/ring"
