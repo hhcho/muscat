@@ -7,7 +7,7 @@ replace github.com/ldsec/lattigo/v2 => github.com/hcholab/lattigo/v2 v2.1.2-0.20
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da
 	github.com/hhcho/frand v1.3.1-0.20210217213629-f1c60c334950
-	github.com/hhcho/mpc-core v0.0.0-20210527211839-87c954bf6638
+	github.com/hhcho/mpc-core v0.0.0-20220828210829-24cf7abd1073
 	github.com/ldsec/lattigo/v2 v2.4.0
 	go.dedis.ch/onet/v3 v3.2.10
 	gonum.org/v1/gonum v0.12.0
