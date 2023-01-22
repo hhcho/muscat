@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from scipy.sparse import coo_matrix
 
-from muscat_model import MusCATModel
+from .muscat_model import MusCATModel
 from sklearn.preprocessing import MinMaxScaler
 
 NUM_DAYS_FOR_PRED = 2
@@ -20,7 +20,7 @@ SGD_LEARN_RATE = 0.01
 
 def parse_disease_outcome(disease_outcome_data_path: Path):
     distrain = pd.read_csv(disease_outcome_data_path)
-    
+
     logger.info("Constructing training labels...")
     state_map = {"S":0, "I":1, "R":2}
     I, J = distrain["pid"], distrain["day"]
@@ -56,12 +56,12 @@ def fit(
 
     model.setup_features(Ytrain, person, actassign, popnet)
 
-    model.fit(Ytrain, NUM_DAYS_FOR_PRED, IMPUTE, 
+    model.fit(Ytrain, NUM_DAYS_FOR_PRED, IMPUTE,
         NEG_TO_POS_RATIO, BATCH_SIZE, NUM_EPOCHS, USE_ADAM,
         ADAM_LEARN_RATE if USE_ADAM else SGD_LEARN_RATE)
-    
+
     model.save(model_dir)
-    
+
 def predict(
     person_data_path: Path,
     household_data_path: Path,
@@ -94,14 +94,14 @@ def predict(
     model.setup_features(Ytrain, person, actassign, popnet)
 
     logger.info("Computing predictions...")
-    pred = model.predict(Ytrain)    
+    pred = model.predict(Ytrain)
 
     scaler = MinMaxScaler()
     scaler.fit(pred)
     pred = scaler.transform(pred)
 
     # Ignore people who are already infected or have recovered
-    pred[Ytrain[:,-1] == 1] = 0 
+    pred[Ytrain[:,-1] == 1] = 0
     pred[Ytrain[:,-1] == 2] = 0
 
     pred_df = pd.Series(
