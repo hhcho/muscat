@@ -17,6 +17,68 @@ import (
 	"github.com/ldsec/lattigo/v2/ckks"
 )
 
+func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim int, numThreads int) []*crypto.CryptoParams {
+	kgen := ckks.NewKeyGenerator(params)
+
+	aggregateSk := ckks.NewSecretKey(params)
+	skList := make([]*ckks.SecretKey, nbrNodes)
+	rq, _ := ring.NewRing(params.N(), append(params.Qi(), params.Pi()...))
+
+	for i := 0; i < nbrNodes; i++ {
+		skList[i] = kgen.GenSecretKey()
+		rq.Add(aggregateSk.Value, skList[i].Value, aggregateSk.Value)
+	}
+	pk := kgen.GenPublicKey(aggregateSk)
+
+	ret := make([]*crypto.CryptoParams, nbrNodes)
+	for i := range ret {
+		rlk := kgen.GenRelinearizationKey(aggregateSk)
+		ret[i] = crypto.NewLocalCryptoParams(params, skList[i], aggregateSk, pk, rlk, numThreads)
+
+		readyForRots := ret[i].SetRotKeys(crypto.GenerateRotKeys(params.Slots(), smallDim, false))
+		log.LLvl1("READY FOR ROTS ", readyForRots)
+	}
+	return ret
+}
+
+func RotKeyGen(parameters *ckks.Parameters, aggregateSk *ckks.SecretKey, rotTypes []crypto.RotationType) (rotKeys *ckks.RotationKeySet) {
+
+	slots := parameters.Slots()
+
+	//aggregateSk := &skShard.SecretKey
+
+	shiftMap := make(map[int]bool)
+	for _, rotType := range rotTypes {
+
+		var shift int
+		if rotType.Side == crypto.SideRight {
+			shift = slots - rotType.Value
+		} else {
+			shift = rotType.Value
+		}
+
+		shiftMap[shift] = true
+	}
+
+	gElems := make([]int, len(shiftMap))
+	i := 0
+	saveks := []int{}
+	for k := range shiftMap {
+		gElems[i] = int(parameters.GaloisElementForColumnRotationBy(k))
+		saveks = append(saveks, k)
+		i++
+	}
+
+	// Need to sortInt otherwise different parties might have different ordering
+	sort.Slice(gElems, func(i, j int) bool { return gElems[i] < gElems[j] })
+	sort.Slice(saveks, func(i, j int) bool { return saveks[i] < saveks[j] })
+	kgen := ckks.NewKeyGenerator(parameters)
+
+	rotKeys = kgen.GenRotationKeysForRotations(saveks, false, aggregateSk)
+
+	return
+}
+
 func (netObj ParallelNetworks) CollectiveInit(params *ckks.Parameters, prec uint) (cps *crypto.CryptoParams) {
 	log.LLvl1("CollectiveInit started")
 
@@ -43,6 +105,7 @@ func (netObj ParallelNetworks) CollectiveInit(params *ckks.Parameters, prec uint
 
 	// Globally shared random generator
 	crpGen := make([]*ring.UniformSampler, len(netObj))
+	rngs := make([]*frand.RNG, len(netObj))
 	for i := range crpGen {
 		seed := make([]byte, chacha.KeySize)
 		netObj[0].Rand.SwitchPRG(-1)
@@ -52,6 +115,7 @@ func (netObj ParallelNetworks) CollectiveInit(params *ckks.Parameters, prec uint
 		seedPrng := frand.NewCustom(seed, BufferSize, 20)
 
 		crpGen[i] = ring.NewUniformSamplerWithBasePrng(seedPrng, dckksContext.RingQP)
+		rngs[i] = seedPrng
 	}
 
 	log.LLvl1("PubKeyGen")
@@ -66,7 +130,7 @@ func (netObj ParallelNetworks) CollectiveInit(params *ckks.Parameters, prec uint
 	smallDim := 20
 	log.LLvl1("RotKeyGen: shifts <=", smallDim, "and powers of two up to", cps.GetSlots())
 	if netObj[0].GetPid() > 0 {
-		rotKs := netObj.CollectiveRotKeyGen(params, skShard, crpGen, crypto.GenerateRotKeys(cps.GetSlots(), smallDim, true))
+		rotKs := netObj.CollectiveRotKeyGen(params, skShard, crpGen, crypto.GenerateRotKeys(cps.GetSlots(), smallDim, false))
 		cps.RotKs = rotKs
 		cps.SetEvaluators(cps.Params, rlk, cps.RotKs)
 	}
@@ -343,7 +407,7 @@ func (netObj *Network) CollectiveBootstrapMat(cps *crypto.CryptoParams, cm crypt
 
 }
 
-//BootstrapMatAll: collective bootstrap for all parties (except 0)
+// BootstrapMatAll: collective bootstrap for all parties (except 0)
 func (netObj *Network) BootstrapMatAll(cps *crypto.CryptoParams, cm crypto.CipherMatrix) crypto.CipherMatrix {
 
 	tmp := make(crypto.CipherMatrix, len(cm))

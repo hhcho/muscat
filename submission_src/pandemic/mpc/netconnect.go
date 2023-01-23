@@ -270,7 +270,7 @@ func ReadFull(conn *net.Conn, buf []byte) {
 	}
 }
 
-//OpenChannel opens channel at specificed ip address and port and returns channel (server side, connection for client to listen to)
+// OpenChannel opens channel at specificed ip address and port and returns channel (server side, connection for client to listen to)
 func OpenChannel(ip, port string) (net.Conn, net.Listener) {
 	l, err := establishConn(ip, port)
 	checkError(err)
@@ -308,7 +308,7 @@ func listen(l net.Listener) (net.Conn, error) {
 	return c, nil
 }
 
-//CloseChannel closes connection
+// CloseChannel closes connection
 func CloseChannel(conn net.Conn) {
 	err := conn.Close()
 	checkError(err)

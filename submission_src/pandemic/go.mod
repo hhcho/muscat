@@ -2,9 +2,10 @@ module github.com/hhcho/petchal
 
 go 1.19
 
-replace github.com/ldsec/lattigo/v2 => github.com/hcholab/lattigo/v2 v2.1.2-0.20220628190737-bde274261547
+replace github.com/ldsec/lattigo/v2 => github.com/hcholab/lattigo/v2 v2.1.2-0.20230122234251-440199fb19d7
 
 require (
+	github.com/BurntSushi/toml v0.3.1
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da
 	github.com/hhcho/frand v1.3.1-0.20210217213629-f1c60c334950
 	github.com/hhcho/mpc-core v0.0.0-20220828210829-24cf7abd1073

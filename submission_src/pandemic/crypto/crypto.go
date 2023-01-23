@@ -1,12 +1,16 @@
 package crypto
 
 import (
+	"bufio"
 	"bytes"
 	"encoding"
+	"encoding/binary"
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"os"
 	"runtime"
 	"sort"
 	"strconv"
@@ -48,10 +52,11 @@ type CryptoParams struct {
 	RotKs       *ckks.RotationKeySet
 	Params      *ckks.Parameters
 
-	encoders   chan ckks.Encoder
-	encryptors chan ckks.Encryptor
-	decryptors chan ckks.Decryptor
-	evaluators chan ckks.Evaluator
+	encoders         chan ckks.Encoder
+	encryptors       chan ckks.Encryptor
+	decryptors       chan ckks.Decryptor
+	masterDecryptors chan ckks.Decryptor
+	evaluators       chan ckks.Evaluator
 
 	numThreads int
 	prec       uint
@@ -82,6 +87,239 @@ type RotationType struct {
 // #------------------------------------#
 // #------------ INIT ------------------#
 // #------------------------------------#
+
+// NewCryptoParams initializes CryptoParams with the given values
+func NewLocalCryptoParams(params *ckks.Parameters, sk, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, numThreads int) *CryptoParams {
+
+	evaluators := make(chan ckks.Evaluator, numThreads)
+	for i := 0; i < numThreads; i++ {
+		evalKey := ckks.EvaluationKey{
+			Rlk:  rlk,
+			Rtks: nil,
+		}
+		evaluators <- ckks.NewEvaluator(params, evalKey)
+	}
+
+	encoders := make(chan ckks.Encoder, numThreads)
+	for i := 0; i < numThreads; i++ {
+		encoders <- ckks.NewEncoder(params)
+	}
+
+	encryptors := make(chan ckks.Encryptor, numThreads)
+	for i := 0; i < numThreads; i++ {
+		encryptors <- ckks.NewEncryptorFromPk(params, pk)
+	}
+
+	decryptors := make(chan ckks.Decryptor, numThreads)
+	for i := 0; i < numThreads; i++ {
+		decryptors <- ckks.NewDecryptor(params, sk)
+	}
+
+	masterdecryptors := make(chan ckks.Decryptor, numThreads)
+	for i := 0; i < numThreads; i++ {
+		masterdecryptors <- ckks.NewDecryptor(params, aggregateSk)
+	}
+
+	return &CryptoParams{
+		Params:      params,
+		Sk:          sk,
+		AggregateSk: aggregateSk,
+		Pk:          pk,
+		Rlk:         rlk,
+
+		encoders:         encoders,
+		encryptors:       encryptors,
+		decryptors:       decryptors,
+		masterDecryptors: masterdecryptors,
+		evaluators:       evaluators,
+		numThreads:       numThreads,
+	}
+}
+
+func WriteFullFile(filename string, buf []byte) error {
+	file, err := os.Create(filename)
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	sbuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(sbuf, uint64(len(buf)))
+	writer := bufio.NewWriter(file)
+	writer.Write(sbuf)
+	writer.Write(buf)
+	writer.Flush()
+
+	return err
+}
+
+func LoadFullFile(filename string) ([]byte, error) {
+	file, err := os.Open(filename)
+	defer file.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	reader := bufio.NewReader(file)
+
+	sbuf := make([]byte, 8)
+	io.ReadFull(reader, sbuf)
+	sbyteSize := binary.LittleEndian.Uint64(sbuf)
+	log.LLvl1(sbyteSize)
+	sdata := make([]byte, sbyteSize)
+	io.ReadFull(reader, sdata)
+	return sdata, err
+}
+
+func SaveCryptoParamsAndRotKeys(pid int, sk *ckks.SecretKey, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, rotks *ckks.RotationKeySet) {
+	skBytes, err := sk.MarshalBinary()
+	if err != nil {
+		log.Error("error marshalling secret key ", err)
+	}
+	err = WriteFullFile(strconv.Itoa(pid)+"_sk.bin", skBytes)
+	if err != nil {
+		log.Error("error writing sk key ", err)
+	}
+	aggregateSkBytes, err := aggregateSk.MarshalBinary()
+	if err != nil {
+		log.Error("error marshalling secret key ", err)
+	}
+	err = WriteFullFile(strconv.Itoa(pid)+"_aggregateSk.bin", aggregateSkBytes)
+	if err != nil {
+		log.Error("error writing aggregateSk key ", err)
+	}
+	pkBytes, err := pk.MarshalBinary()
+	log.LLvl1("length of PUBLIC KEY ", len(pkBytes))
+	if err != nil {
+		log.Error("error marshalling public key ", err)
+	}
+	err = WriteFullFile(strconv.Itoa(pid)+"_pk.bin", pkBytes)
+	if err != nil {
+		log.Error("error writing pk key ", err)
+	}
+	rlkBytes, err := rlk.MarshalBinary()
+	log.LLvl1("length of RLK KEY ", len(rlkBytes))
+	if err != nil {
+		log.Error("error marshalling relinearization key ", err)
+	}
+	err = WriteFullFile(strconv.Itoa(pid)+"_rlk.bin", rlkBytes)
+	if err != nil {
+		log.Error("error writing rlk key ", err)
+	}
+
+	if pid > 0 {
+		rotKsBytes, err := rotks.MarshalBinary()
+		log.LLvl1("length of ROTKS KEY ", len(rotKsBytes))
+		if err != nil {
+			log.Error("error marshalling rotation keys ", err)
+		}
+		err = WriteFullFile(strconv.Itoa(pid)+"_rotks.bin", rotKsBytes)
+		if err != nil {
+			log.Error("error writing rotks key ", err)
+		}
+	}
+
+}
+
+func NewCryptoParamsFromDisk(isServer bool, pid int, numThreads int) *CryptoParams {
+	// Read back the keys
+	rlk := new(ckks.RelinearizationKey)
+	rlkBytes, err := LoadFullFile(strconv.Itoa(pid) + "_rlk.bin")
+	if err != nil {
+		log.Error("error reading relinearization key ", err)
+	}
+	rlk.UnmarshalBinary(rlkBytes)
+
+	pk := new(ckks.PublicKey)
+	pkBytes, err := LoadFullFile(strconv.Itoa(pid) + "_pk.bin")
+	if err != nil {
+		log.Error("error reading public key ", err)
+	}
+	pk.UnmarshalBinary(pkBytes)
+
+	sk := new(ckks.SecretKey)
+	if !isServer {
+		skBytes, err := LoadFullFile(strconv.Itoa(pid) + "_sk.bin")
+		if err != nil {
+			log.Error("error reading secret key ", err)
+		}
+		sk.UnmarshalBinary(skBytes)
+	}
+
+	aggregateSk := new(ckks.SecretKey)
+	if !isServer {
+		aggregateSkBytes, err := LoadFullFile(strconv.Itoa(pid) + "_aggregateSk.bin")
+		if err != nil {
+			log.Error("error reading secret key ", err)
+		}
+		aggregateSk.UnmarshalBinary(aggregateSkBytes)
+	}
+
+	rotks := new(ckks.RotationKeySet)
+	if pid > 0 {
+		rotKsBytes, err := LoadFullFile(strconv.Itoa(pid) + "_rotks.bin")
+		if err != nil {
+			log.Error("error reading rotation keys ", err)
+		}
+		rotks.UnmarshalBinary(rotKsBytes)
+	}
+
+	params := ckks.DefaultParams[ckks.PN14QP438]
+
+	evaluators := make(chan ckks.Evaluator, numThreads)
+	for i := 0; i < numThreads; i++ {
+		evalKey := ckks.EvaluationKey{
+			Rlk:  rlk,
+			Rtks: rotks,
+		}
+		evaluators <- ckks.NewEvaluator(params, evalKey)
+	}
+	log.LLvl1("created evaluators")
+
+	encoders := make(chan ckks.Encoder, numThreads)
+	var wg sync.WaitGroup
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			encoders <- ckks.NewEncoderBig(params, 256)
+		}()
+	}
+	wg.Wait()
+
+	encryptors := make(chan ckks.Encryptor, numThreads)
+	for i := 0; i < numThreads; i++ {
+		encryptors <- ckks.NewEncryptorFromPk(params, pk)
+	}
+
+	decryptors := make(chan ckks.Decryptor, numThreads)
+	masterDecryptors := make(chan ckks.Decryptor, numThreads)
+	if !isServer {
+		for i := 0; i < numThreads; i++ {
+			decryptors <- ckks.NewDecryptor(params, sk)
+		}
+		for i := 0; i < numThreads; i++ {
+			masterDecryptors <- ckks.NewDecryptor(params, aggregateSk)
+		}
+	}
+
+	return &CryptoParams{
+		Params:      params,
+		Sk:          sk,
+		AggregateSk: aggregateSk,
+		Pk:          pk,
+		Rlk:         rlk,
+
+		encoders:         encoders,
+		encryptors:       encryptors,
+		decryptors:       decryptors,
+		masterDecryptors: masterDecryptors,
+		evaluators:       evaluators,
+
+		numThreads: numThreads,
+		prec:       256,
+		RotKs:      rotks,
+	}
+}
 
 // NewCryptoParams initializes CryptoParams with the given values
 func NewCryptoParams(params *ckks.Parameters, sk, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, prec uint, numThreads int) *CryptoParams {
@@ -230,7 +468,8 @@ func (cp *CryptoParams) SetRotKeys(nbrRot []RotationType) []int {
 func GenerateRotKeys(slots int, smallDim int, babyFlag bool) []RotationType {
 	rotations := make([]RotationType, 0)
 
-	l := slots
+	// TODO changed
+	l := smallDim
 	l = FindClosestPow2(l)
 
 	rot := 1
@@ -302,6 +541,14 @@ func (cp *CryptoParams) WithDecryptor(act func(act ckks.Decryptor) error) error 
 	decryptor := <-cp.decryptors
 	err := act(decryptor)
 	cp.decryptors <- decryptor
+	return err
+}
+
+// WithDecryptor run the given function with a decryptor
+func (cp *CryptoParams) WithMasterDecryptor(act func(act ckks.Decryptor) error) error {
+	masterDecryptor := <-cp.masterDecryptors
+	err := act(masterDecryptor)
+	cp.masterDecryptors <- masterDecryptor
 	return err
 }
 
@@ -483,7 +730,7 @@ func DecryptFloatVector(cryptoParams *CryptoParams, fEnc CipherVector, N int) []
 
 	dataDecrypted := make([]float64, 0)
 	for _, cipher := range fEnc {
-		cryptoParams.WithDecryptor(func(decryptor ckks.Decryptor) error {
+		cryptoParams.WithMasterDecryptor(func(decryptor ckks.Decryptor) error {
 			plaintext = decryptor.DecryptNew(cipher)
 			return nil
 		})
@@ -646,7 +893,7 @@ func CopyEncryptedMatrix(src []CipherVector) []CipherVector {
 var _ encoding.BinaryMarshaler = new(CryptoParams)
 var _ encoding.BinaryUnmarshaler = new(CryptoParams)
 
-//MarshalBinary for minimal cryptoParams-keys + params
+// MarshalBinary for minimal cryptoParams-keys + params
 func (cp *CryptoParams) MarshalBinary() ([]byte, error) {
 	var ret bytes.Buffer
 	encoder := gob.NewEncoder(&ret)

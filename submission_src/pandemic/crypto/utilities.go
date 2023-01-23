@@ -3,6 +3,7 @@ package crypto
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"unsafe"
@@ -31,7 +32,7 @@ func Mod(n int, modulus int) int {
 	return n
 }
 
-//MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
+// MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
 func MarshalCM(cm CipherMatrix) ([]byte, []byte) {
 	cmBytes, ctSizes, err := cm.MarshalBinary()
 	if err != nil {
@@ -55,7 +56,7 @@ func MarshalCM(cm CipherMatrix) ([]byte, []byte) {
 
 }
 
-//MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
+// MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
 func UnmarshalCM(cryptoParams *CryptoParams, r, c int, sbytes, ctbytes []byte) CipherMatrix {
 	intsize := uint64(8)
 	offset := uint64(0)
@@ -110,11 +111,11 @@ func SaveCipherMatrixToFile(cps *CryptoParams, cm CipherMatrix, filename string)
 	writer.Flush()
 }
 
-func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) CipherMatrix {
+func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) (CipherMatrix, error) {
 	file, err := os.Open(filename)
 	defer file.Close()
 	if err != nil {
-		log.Fatal(err)
+		log.Error(err)
 	}
 
 	reader := bufio.NewReader(file)
@@ -137,7 +138,49 @@ func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) CipherMatrix {
 	cdata := make([]byte, cbyteSize)
 	io.ReadFull(reader, cdata)
 
-	return UnmarshalCM(cps, nrows, numCtxPerRow, sdata, cdata)
+	return UnmarshalCM(cps, nrows, numCtxPerRow, sdata, cdata), err
+}
+
+func SaveFloatVectorToFile(filename string, x []float64) {
+	file, err := os.Create(filename)
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	writer := bufio.NewWriter(file)
+
+	for i := range x {
+		writer.WriteString(fmt.Sprintf("%.6e\n", x[i]))
+	}
+
+	writer.Flush()
+}
+
+func LoadFloatVectorFromFile(filename string, n int) []float64 {
+	file, err := os.Open(filename)
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	reader := bufio.NewReader(file)
+
+	out := make([]float64, n)
+
+	for i := range out {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		_, err = fmt.Sscanf(line, "%f", &out[i])
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	return out
 }
 
 //
