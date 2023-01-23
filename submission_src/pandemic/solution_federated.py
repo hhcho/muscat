@@ -19,6 +19,7 @@ from tqdm import tqdm
 import itertools
 
 from .muscat_model import MusCATModel
+from .muscat_workflow import prot, workflow
 
 NUM_DAYS_FOR_PRED = 2
 IMPUTE = True
@@ -29,23 +30,14 @@ USE_ADAM = True
 ADAM_LEARN_RATE = 0.005
 SGD_LEARN_RATE = 0.01
 
-TRAIN_ROUND_NAMES = [None, # Round number starts at 1
-    'test agg 1', 
-    'test agg 2', 
-    'test agg 3', 
-    # 'test cps', 
-    # 'unify locations',
-    # 'compute infection stats and exposure loads',
-    # 'construct training features and scaler',
-    # 'model learning first iter',
-    # *['model learning iter'] * (NUM_ITERS - 2),
-    # 'model learning last iter'
-]
+# TRAIN_ROUNDS = workflow.PLAIN_TRAIN_ROUNDS(NUM_ITERS)
+# TEST_ROUNDS = workflow.PLAIN_TEST_ROUNDS
 
-TEST_ROUND_NAMES = [None, # Round number starts at 1
-    'compute infection stats and exposure loads',
-    'construct test features'
-]
+# TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
+# TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
+
+TRAIN_ROUNDS = workflow.DEBUG_ROUNDS
+TEST_ROUNDS = workflow.EMPTY
 
 def run(*args: str):
     """ Runs Go subprocess with specified args """
@@ -193,17 +185,7 @@ class TrainClient(fl.client.NumPyClient):
         # self.num_examples = pd.read_csv(self.disease_outcome_data_path).shape[0]
         self.num_examples = 1 # TODO: replace with real info
 
-
-    # TODO: Update for NumPyClient
-    # def _deserialize_file(self, name: str) -> FitRes:
-    #     with open(name, 'rb') as out:
-    #         return FitRes(
-    #             status=Status(Code.OK, message=''),
-    #             parameters=Parameters([out.read()], ''),
-    #             num_examples=self.num_examples,
-    #             metrics={},
-    #         )
-
+    # TrainClient
     def fit(
         self, parameters: List[np.ndarray], config: dict
     ) -> Tuple[List[np.ndarray], int, dict]:
@@ -232,11 +214,11 @@ class TrainClient(fl.client.NumPyClient):
         """
 
         round_num = int(config['round'])
-        round_name = TRAIN_ROUND_NAMES[round_num]
+        round_prot = TRAIN_ROUNDS[round_num]
 
-        logger.info(f">>>>> TrainClient: fit round {round_num} ({round_name})")
+        logger.info(f">>>>> TrainClient: fit round {round_num} (Prot-{round_prot})")
 
-        if round_name == 'unify locations':
+        if round_prot == prot.UNIFY_LOC:
 
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
 
@@ -245,18 +227,20 @@ class TrainClient(fl.client.NumPyClient):
         
             return [np.array([max_res]), np.array([max_actloc])], 0, {}
         
-        elif round_name == 'compute infection stats and exposure loads':
+        elif round_prot in [prot.LOCAL_STATS, prot.LOCAL_STATS_SECURE]:
 
             max_res, max_actloc = parameters
 
+            logger.info("Saving max indicies across clients")
             np.save(self.client_dir / "max_indices.npy", np.array([max_res, max_actloc]))
 
+            logger.info("Loading data")
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
-
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
 
             model = MusCATModel()
 
+            logger.info("Compute local disease progression stats")
             duration_cnt = model.fit_disease_progression(Ytrain)
 
             new_vec = np.zeros(10) # Max duration of 10 days
@@ -264,8 +248,10 @@ class TrainClient(fl.client.NumPyClient):
             new_vec[:max_ind] = duration_cnt[:max_ind]
             duration_cnt = new_vec
 
+            logger.info("Compute local symptom development stats")
             symptom_cnt, recov_cnt = model.fit_symptom_development(Ytrain)
 
+            logger.info("Compute local exposure loads for each training day")
             le_res_act = actassign.loc[actassign["lid"] > 1000000000]
             le_other_act = actassign.loc[actassign["lid"] < 1000000000]
 
@@ -292,9 +278,12 @@ class TrainClient(fl.client.NumPyClient):
                 
                 eloads_actloc[day,:] = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
 
+            # TODO
+            #if round_prot ==  
+
             return [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc], 0, {}
             
-        elif round_name == 'construct training features and scaler':
+        elif round_prot == prot.FEAT:
 
             duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc = parameters
 
@@ -346,14 +335,14 @@ class TrainClient(fl.client.NumPyClient):
 
             return [feat_sum, feat_sqsum, feat_count], 0, {}
 
-        elif round_name == 'model learning first iter' or round_name == 'model learning iter' or round_name == 'model learning last iter':
+        elif round_prot in [prot.ITER, prot.ITER_FIRST, prot.ITER_LAST]:
 
             # Load model
             model = MusCATModel()
             model.load(self.client_dir, is_fed=True)
             
             # If first iter compute feature centers and scales
-            if round_name == 'model learning first iter':
+            if round_prot == prot.ITER_FIRST:
                 feat_sum, feat_sqsum, feat_count = parameters
                 model.center = feat_sum / feat_count
                 model.scale = np.sqrt((feat_sqsum - (feat_sum**2)) / feat_count)
@@ -364,7 +353,7 @@ class TrainClient(fl.client.NumPyClient):
                 model.save(self.client_dir, is_fed=True)
 
             # Skip gradient calculation if last iteration
-            if round_name == 'model learning last iter':
+            if round_prot == prot.ITER_LAST:
                 return [], 0, {}
 
             # Load data
@@ -388,11 +377,11 @@ class TrainClient(fl.client.NumPyClient):
 
             return [gradient_sum, sample_count], 0, {}
 
-        elif round_name == 'test cps':
+        elif round_prot == prot.TEST_CPS:
             
             run("cps-test", self.client_dir)
 
-        elif round_name == 'test agg 1':
+        elif round_prot == prot.TEST_AGG_1:
             
             logger.info(">>>>>>>>>>>" + self.cid)
 
@@ -410,7 +399,7 @@ class TrainClient(fl.client.NumPyClient):
 
             return [enc], 0, {}
 
-        elif round_name == 'test agg 2':
+        elif round_prot == prot.TEST_AGG_2:
 
             enc = parameters[0]
 
@@ -427,7 +416,7 @@ class TrainClient(fl.client.NumPyClient):
 
             return [enc, np.array([nr, nc])], 0, {}
 
-        elif round_name == 'test agg 3':
+        elif round_prot == prot.TEST_AGG_3:
 
             enc = parameters[0]
 
@@ -444,7 +433,7 @@ class TrainClient(fl.client.NumPyClient):
             logger.info(repr(vec))
 
         else:
-            logger.info(f"Unimplemented round {round_num} ({round_name})")
+            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
 
         # Default return values
         return [], 0, {}
@@ -469,7 +458,7 @@ def train_strategy_factory(
     """
 
     training_strategy = TrainStrategy(server_dir=server_dir)
-    num_rounds = len(TRAIN_ROUND_NAMES) - 1
+    num_rounds = len(TRAIN_ROUNDS) - 1
 
     logger.info(f">>>>> initialized TrainStrategy, num_rounds: {num_rounds}")
     return training_strategy, num_rounds
@@ -503,6 +492,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
 
         return fl.common.ndarrays_to_parameters([])
 
+    # TrainStrategy
     def configure_fit(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager
     ) -> List[Tuple[ClientProxy, FitIns]]:
@@ -526,49 +516,49 @@ class TrainStrategy(fl.server.strategy.Strategy):
             will not participate in the next round of federated learning.
         """
         round_num = server_round
-        round_name = TRAIN_ROUND_NAMES[round_num]
+        round_prot = TRAIN_ROUNDS[round_num]
         
-        logger.info(f">>>>> TrainStrategy: configure_fit round {round_num} ({round_name})")
+        logger.info(f">>>>> TrainStrategy: configure_fit round {round_num} (Prot-{round_prot})")
 
         clients = list(client_manager.all().values())
         params = fl.common.parameters_to_ndarrays(parameters)
 
-        if round_name == 'unify locations':
+        if round_prot == prot.UNIFY_LOC:
             pass
-        elif round_name == 'compute infection stats and exposure loads':
+        elif round_prot == prot.LOCAL_STATS:
 
             # Provide max_res and max_actloc to all clients
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
-        elif round_name == 'construct training features and scaler':
+        elif round_prot == prot.FEAT:
 
             # Provide various aggregated counts to all clients
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
-        elif round_name == 'model learning first iter' or round_name == 'model learning iter':
+        elif round_prot in [prot.ITER, prot.ITER_FIRST, prot.ITER_LAST]:
 
             # Provide feature statistics to all clients
+            # for main iterations, aggregated gradients
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
-        elif  round_name == 'model learning last iter':
-            pass
-        elif round_name == 'test agg 1':
+        elif round_prot == prot.TEST_AGG_1:
             pass
 
-        elif round_name == 'test agg 2':
+        elif round_prot == prot.TEST_AGG_2:
 
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
-        elif round_name == 'test agg 3':
+        elif round_prot == prot.TEST_AGG_3:
 
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
         else:
-            logger.info(f"Unimplemented round {round_num} ({round_name})")
+            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
 
         # Default configuration: pass nothing
         return ndarrays_to_fit_configuration(round_num, [], clients)
 
+    # TrainStrategy
     def aggregate_fit(
         self, server_round: int, results: List[Tuple[ClientProxy, FitRes]], failures
     ) -> Tuple[Optional[Parameters], dict]:
@@ -604,9 +594,9 @@ class TrainStrategy(fl.server.strategy.Strategy):
         """
         
         round_num = server_round
-        round_name = TRAIN_ROUND_NAMES[round_num]
+        round_prot = TRAIN_ROUNDS[round_num]
 
-        logger.info(f">>>>> TrainStrategy: aggregate_fit round {round_num} ({round_name})")
+        logger.info(f">>>>> TrainStrategy: aggregate_fit round {round_num} (Prot-{round_prot})")
 
         if len(failures) > 0:
             raise Exception(f"Client fit round had {len(failures)} failures.")
@@ -618,7 +608,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
             for _, fit_res in results
         ]
 
-        if round_name == 'unify locations':
+        if round_prot == prot.UNIFY_LOC:
 
             max_res = np.array([res[0] for res in fit_res]).max()
             max_actloc = np.array([res[1] for res in fit_res]).max()
@@ -626,7 +616,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
             params = fl.common.ndarrays_to_parameters([max_res, max_actloc])            
             return params, {}
 
-        elif round_name == 'compute infection stats and exposure loads':
+        elif round_prot == prot.LOCAL_STATS:
 
             duration_cnt = np.sum([res[0] for res in fit_res], axis=0)
             symptom_cnt = np.sum([res[1] for res in fit_res], axis=0)
@@ -639,7 +629,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
                 [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc])
             return params, {}
             
-        elif round_name == 'construct training features and scaler':
+        elif round_prot == prot.FEAT:
             
             feat_sum = np.sum([res[0] for res in fit_res], axis=0)
             feat_sqsum = np.sum([res[1] for res in fit_res], axis=0)
@@ -649,7 +639,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
                 [feat_sum, feat_sqsum, feat_count])
             return params, {}
 
-        elif round_name == 'model learning first iter' or round_name == 'model learning iter':
+        elif round_prot in [prot.ITER, prot.ITER_FIRST]:
 
             gradient = np.sum([res[0] for res in fit_res], axis=0)
             sample_count = np.sum([res[1] for res in fit_res], axis=0)
@@ -658,9 +648,9 @@ class TrainStrategy(fl.server.strategy.Strategy):
                 [gradient, sample_count])
             return params, {}
         
-        elif round_name == 'model learning last iter':
+        elif round_prot == prot.ITER_LAST:
             pass            
-        elif round_name == 'test agg 1':
+        elif round_prot == prot.TEST_AGG_1:
 
             file_list = []
             for idx, res in enumerate(fit_res):
@@ -676,7 +666,8 @@ class TrainStrategy(fl.server.strategy.Strategy):
             params = fl.common.ndarrays_to_parameters(
                 [enc])
             return params, {}
-        elif round_name == 'test agg 2':
+
+        elif round_prot == prot.TEST_AGG_2:
 
             file_list = []
             for idx, res in enumerate(fit_res):
@@ -694,10 +685,10 @@ class TrainStrategy(fl.server.strategy.Strategy):
                 [enc])
             return params, {}
 
-        elif round_name == 'test agg 3':
+        elif round_prot == prot.TEST_AGG_3:
             pass
         else:
-            logger.info(f"Unimplemented round {round_num} ({round_name})")
+            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
 
         # Default return values
         return None, {}
@@ -871,15 +862,16 @@ class TestClient(fl.client.NumPyClient):
     preds_format_path: Path
     preds_dest_path: Path
 
+    # TestClient
     def fit(self, parameters: List[np.ndarray], config: dict
     ) -> Tuple[List[np.ndarray], int, dict]:
 
         round_num = int(config['round'])
-        round_name = TEST_ROUND_NAMES[round_num]
+        round_prot = TEST_ROUNDS[round_num]
 
-        logger.info(f">>>>> TestClient: fit round {round_num} ({round_name})")
+        logger.info(f">>>>> TestClient: fit round {round_num} (Prot-{round_prot})")
 
-        if round_name == 'compute infection stats and exposure loads':
+        if round_prot == prot.PRED_LOCAL_STATS:
 
             max_res, max_actloc = np.load(self.client_dir / "max_indices.npy")
 
@@ -908,7 +900,7 @@ class TestClient(fl.client.NumPyClient):
 
             return [eloads_pop, eloads_res, eloads_actloc], 0, {}
 
-        elif round_name == 'construct test features':
+        elif round_prot == prot.PRED_FEAT:
 
             eloads_pop, eloads_res, eloads_actloc = parameters
 
@@ -936,7 +928,7 @@ class TestClient(fl.client.NumPyClient):
             np.save(self.client_dir / "test_feat.npy", test_feat)
 
         else:
-            logger.info(f"Unimplemented round {round_num} ({round_name})")
+            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
 
         # Default return values
         return [], 0, {}
@@ -1038,7 +1030,7 @@ def test_strategy_factory(
         (int): Number of federated learning rounds to execute.
     """
     test_strategy = TestStrategy(server_dir=server_dir)
-    num_rounds = len(TEST_ROUND_NAMES) - 1
+    num_rounds = len(TEST_ROUNDS) - 1
     return test_strategy, num_rounds
 
 
@@ -1069,41 +1061,42 @@ class TestStrategy(fl.server.strategy.Strategy):
         
         return Parameters([], '')
 
-    def configure_fit(
+    # TestStrategy
+    def configure_fit( 
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, FitIns]]:
 
         round_num = server_round
-        round_name = TEST_ROUND_NAMES[round_num]
+        round_prot = TEST_ROUNDS[round_num]
         
-        logger.info(f">>>>> TestStrategy: configure_fit round {round_num} ({round_name})")
+        logger.info(f">>>>> TestStrategy: configure_fit round {round_num} (Prot-{round_prot})")
 
         clients = list(client_manager.all().values())
         params = fl.common.parameters_to_ndarrays(parameters)
 
-        if round_name == 'compute infection stats and exposure loads':
+        if round_prot == prot.PRED_LOCAL_STATS:
             pass
-        elif round_name == 'construct test features':
+        elif round_prot == prot.PRED_FEAT:
 
             # Provide aggregate exposure loads to all clients
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
         else:
-            logger.info(f"Unimplemented round {round_num} ({round_name})")
+            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
 
         # Default configuration: pass nothing
         return ndarrays_to_fit_configuration(round_num, [], clients)
 
-
+    # TestStrategy
     def aggregate_fit(
         self, server_round: int, results: List[Tuple[ClientProxy, FitRes]],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], dict]:
         
         round_num = server_round
-        round_name = TEST_ROUND_NAMES[round_num]
+        round_prot = TEST_ROUNDS[round_num]
 
-        logger.info(f">>>>> TestStrategy: aggregate_fit round {round_num} ({round_name})")
+        logger.info(f">>>>> TestStrategy: aggregate_fit round {round_num} (Prot-{round_prot})")
 
         if len(failures) > 0:
             raise Exception(f"Client fit round had {len(failures)} failures.")
@@ -1115,7 +1108,7 @@ class TestStrategy(fl.server.strategy.Strategy):
             for _, fit_res in results
         ]
 
-        if round_name == 'compute infection stats and exposure loads':
+        if round_prot == prot.PRED_LOCAL_STATS:
             
             eloads_pop = np.sum([res[0] for res in fit_res], axis=0)
             eloads_res = np.sum([res[1] for res in fit_res], axis=0)
@@ -1125,10 +1118,10 @@ class TestStrategy(fl.server.strategy.Strategy):
                 [eloads_pop, eloads_res, eloads_actloc])
             return params, {}
 
-        elif round_name == 'construct test features':
+        elif round_prot == prot.PRED_FEAT:
             pass            
         else:
-            logger.info(f"Unimplemented round {round_num} ({round_name})")
+            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
 
         # Default return values
         return None, {}
