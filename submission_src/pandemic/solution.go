@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"log"
+	"math"
 	"os"
 	"strconv"
 
@@ -34,11 +35,11 @@ func main() {
 
 		mheexample.ClientEncryptVectorSimple(os.Args[2])
 
-	case "encrypt-vec-int":
+	case "encrypt-vec":
 
 		pid_path := os.Args[2]
 		inFile := os.Args[3]
-		outFile := pid_path + "/output.bin"
+		outFile := os.Args[4]
 
 		cps := crypto.NewCryptoParamsFromDiskPath(false, pid_path, 1)
 
@@ -47,16 +48,17 @@ func main() {
 			log.Fatal(err)
 		}
 
-		log.Println(b)
-
 		numBytes := 8
 
 		vec := make([]float64, len(b)/numBytes)
 		for i := range vec {
-			vec[i] = float64(int64(binary.LittleEndian.Uint64(b[i*numBytes : (i+1)*numBytes])))
-		}
+			// int64 version
+			// vec[i] = float64(int64(binary.LittleEndian.Uint64(b[i*numBytes : (i+1)*numBytes])))
 
-		log.Println(vec)
+			// float64 version
+			bits := binary.LittleEndian.Uint64(b[i*numBytes : (i+1)*numBytes])
+			vec[i] = math.Float64frombits(bits)
+		}
 
 		vecEnc, _ := crypto.EncryptFloatVector(cps, vec)
 
@@ -78,8 +80,8 @@ func main() {
 	case "aggregate-cipher":
 
 		pid_path := os.Args[2]
-		inFiles := os.Args[3:]
-		outFile := pid_path + "/output.bin"
+		outFile := os.Args[3]
+		inFiles := os.Args[4:]
 
 		cps := crypto.NewCryptoParamsFromDiskPath(true, pid_path, 1)
 
@@ -101,25 +103,31 @@ func main() {
 
 		pidPath := os.Args[2]
 		inFile := os.Args[3]
+		outFile := os.Args[4]
+		keyFile := os.Args[5]
+		dimFile := os.Args[6]
 
-		mheexample.CollectiveDecryptClientSend(pidPath, inFile)
+		mheexample.CollectiveDecryptClientSend(pidPath, inFile, outFile, keyFile, dimFile)
 
 	case "decrypt-server":
 
 		pidPath := os.Args[2]
 		nr, _ := strconv.Atoi(os.Args[3])
 		nc, _ := strconv.Atoi(os.Args[4])
-		inFiles := os.Args[5:]
+		outFile := os.Args[5]
+		inFiles := os.Args[6:]
 
-		mheexample.CollectiveDecryptServer(pidPath, nr, nc, inFiles)
+		mheexample.CollectiveDecryptServer(pidPath, nr, nc, outFile, inFiles)
 
 	case "decrypt-client-receive":
 
 		pidPath := os.Args[2]
 		inFile := os.Args[3]
 		serverFile := os.Args[4]
+		keyFile := os.Args[5]
+		outFile := os.Args[6]
 
-		mheexample.CollectiveDecryptClientReceive(pidPath, inFile, serverFile)
+		mheexample.CollectiveDecryptClientReceive(pidPath, inFile, serverFile, keyFile, outFile)
 
 	}
 }

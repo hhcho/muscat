@@ -14,18 +14,19 @@ class prot(Enum):
     ITER_SECURE = 9 # ITER with secure aggregation of gradients
     ITER_LAST = 10 # model learning last iter
     ITER_LAST_SECURE = 11 # ITER_LAST with secure aggregation of gradients
+    COLLECTIVE_DECRYPT = 12 # intermediate round for decrypting aggregated data
     
     # Prediction (test)
-    PRED_LOCAL_STATS = 101 # compute infection stats and exposure loads
-    PRED_LOCAL_STATS_SECURE = 102 # PRED_LOCAL_STATS with secure aggregation
-    PRED_FEAT = 103 # construct test features
-    PRED_FEAT_SECURE = 104 # PRED_FEAT with secure aggregation
+    PRED_LOCAL_STATS = 1001 # compute infection stats and exposure loads
+    PRED_LOCAL_STATS_SECURE = 1002 # PRED_LOCAL_STATS with secure aggregation
+    PRED_FEAT = 1003 # construct test features
+    PRED_FEAT_SECURE = 1004 # PRED_FEAT with secure aggregation
     
     # Tests for debugging
-    TEST_CPS = 201
-    TEST_AGG_1 = 202
-    TEST_AGG_2 = 203
-    TEST_AGG_3 = 204
+    TEST_CPS = 2001 # Test caching of cryptoparams
+    TEST_AGG_1 = 2002 # Aggregation and decryption test - step 1
+    TEST_AGG_2 = 2003 # Aggregation and decryption test - step 2
+    TEST_AGG_3 = 2004 # Aggregation and decryption test - step 3
     
 
 # Workflow definitions
@@ -39,9 +40,13 @@ class workflow:
         return [None,
                 prot.UNIFY_LOC,
                 prot.LOCAL_STATS_SECURE,
+                prot.COLLECTIVE_DECRYPT,
                 prot.FEAT_SECURE,
+                prot.COLLECTIVE_DECRYPT,
                 prot.ITER_FIRST_SECURE,
-                *[prot.ITER_SECURE] * (num_iters - 2),
+                *[prot.COLLECTIVE_DECRYPT,
+                  prot.ITER_SECURE] * (num_iters - 2),
+                prot.COLLECTIVE_DECRYPT
                 prot.ITER_LAST_SECURE]
 
     # Plaintext training workflow

@@ -421,7 +421,7 @@ func CollectiveBootstrapServer(vectorsToBootstrap string, out_path string) {
 }
 
 // REF CollectiveDecryptMat
-func CollectiveDecryptClientSend(pidPath string, vectorToDecryptFile string) {
+func CollectiveDecryptClientSend(pidPath, vectorToDecryptFile, outFile, keyFile, dimFile string) {
 	cps := crypto.NewCryptoParamsFromDiskPath(false, pidPath, 1)
 	parameters := cps.Params
 	skShard := cps.Sk.Value
@@ -440,7 +440,7 @@ func CollectiveDecryptClientSend(pidPath string, vectorToDecryptFile string) {
 	token := make([]byte, 32)
 	rand.Read(token)
 
-	crypto.WriteFullFile(pidPath+"/decryption_token.bin", token)
+	crypto.WriteFullFile(keyFile, token)
 
 	pcksProtocol := dckks.NewPCKSProtocolDeterPRNG(parameters, 6.36, token)
 
@@ -453,7 +453,7 @@ func CollectiveDecryptClientSend(pidPath string, vectorToDecryptFile string) {
 		}
 	}
 
-	file, err := os.Create(pidPath + "/output.bin")
+	file, err := os.Create(outFile)
 	defer file.Close()
 	if err != nil {
 		log.Fatal(err)
@@ -472,10 +472,10 @@ func CollectiveDecryptClientSend(pidPath string, vectorToDecryptFile string) {
 		}
 	}
 
-	crypto.SaveFloatVectorToFile(pidPath+"/output.txt", []float64{float64(nr), float64(nc)})
+	crypto.SaveFloatVectorToFile(dimFile, []float64{float64(nr), float64(nc)})
 }
 
-func CollectiveDecryptServer(pidPath string, nr, nc int, inFiles []string) {
+func CollectiveDecryptServer(pidPath string, nr, nc int, outFile string, inFiles []string) {
 	cps := crypto.NewCryptoParamsFromDiskPath(true, pidPath, 1)
 
 	parameters := cps.Params
@@ -529,7 +529,7 @@ func CollectiveDecryptServer(pidPath string, nr, nc int, inFiles []string) {
 	}
 
 	// save to file to send
-	file, err := os.Create(pidPath + "/output.bin")
+	file, err := os.Create(outFile)
 	defer file.Close()
 	if err != nil {
 		log.Fatal(err)
@@ -548,7 +548,7 @@ func CollectiveDecryptServer(pidPath string, nr, nc int, inFiles []string) {
 	}
 }
 
-func CollectiveDecryptClientReceive(pidPath string, vectorToDecryptFile string, server_polysPath string) {
+func CollectiveDecryptClientReceive(pidPath string, vectorToDecryptFile, server_polysPath, keyFile, outFile string) {
 	cps := crypto.NewCryptoParamsFromDiskPath(false, pidPath, 1)
 
 	parameters := cps.Params
@@ -561,9 +561,8 @@ func CollectiveDecryptClientReceive(pidPath string, vectorToDecryptFile string, 
 	level := cm[0][0].Level()
 	scale := cm[0][0].Scale()
 
-	token, _ := crypto.LoadFullFile(pidPath + "/decryption_token.bin")
+	token, _ := crypto.LoadFullFile(keyFile)
 	pcksProtocol := dckks.NewPCKSProtocolDeterPRNG(parameters, 6.36, token)
-	//dckksContext := dckks.NewContext(cps.Params)
 
 	decShare := make([][]dckks.PCKSShare, nr)
 	for r := range decShare {
@@ -607,5 +606,5 @@ func CollectiveDecryptClientReceive(pidPath string, vectorToDecryptFile string, 
 	log.LLvl1(len(pm), len(cm), len(cm[0]))
 	pmDecoded := crypto.DecodeFloatVector(cps, pm)
 
-	crypto.SaveFloatVectorToFileBinary(pidPath+"/output.bin", pmDecoded)
+	crypto.SaveFloatVectorToFileBinary(outFile, pmDecoded)
 }

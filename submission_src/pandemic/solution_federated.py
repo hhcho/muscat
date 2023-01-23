@@ -44,6 +44,41 @@ def run(*args: str):
     exec_path = os.path.join(os.path.dirname(__file__), 'petchal')
     subprocess.run([exec_path, *args], check=True)
 
+# With original ciphertext data to decrypt in inFile and intermediate
+# aggregated data sent from server in enc, finish collective decryption
+# keyFile includes cached state from the previous step of this protocol
+def collective_decrypt_final_step(enc):
+
+    # Files from the previous round (prot.COLLECTIVE_DECRYPT)
+    inFile = self.client_dir / "input.bin" 
+    keyFile = self.client_dir / "decryption_token.bin"
+
+    outFile = self.client_dir / "output.bin"
+    serverFile = self.client_dir / "server.bin"
+
+    enc.tofile(serverFile)
+
+    run("decrypt-client-receive", self.client_dir, inFile, serverFile, keyFile, outFile)
+
+    vec = np.fromfile(outFile, dtype=np.float64)
+
+    return vec
+
+# Take a list of ndarrays and transform into 
+# encrypted binary data
+def encrypt_local_ndarrays(data_list):
+    arr = np.hstack([np.ravel(v) for v in data_list]).astype(np.float64)
+    
+    infile = self.client_dir / "input.bin"
+    outfile = self.client_dir / "output.bin"
+    arr.tofile(infile)
+
+    run("encrypt-vec", self.client_dir, infile, outfile)
+
+    enc = np.fromfile(outfile, dtype=np.int8)
+
+    return enc
+
 def ndarrays_to_fit_configuration(round_num: int, arrays: List[np.ndarray], clients: List[ClientProxy]
 ) -> List[Tuple[ClientProxy, FitIns]]:
     fit_ins = fl.common.FitIns(fl.common.ndarrays_to_parameters(arrays), {"round": round_num})
@@ -231,16 +266,18 @@ class TrainClient(fl.client.NumPyClient):
 
             max_res, max_actloc = parameters
 
-            logger.info("Saving max indicies across clients")
+            logger.info("Save max indicies across clients")
+
             np.save(self.client_dir / "max_indices.npy", np.array([max_res, max_actloc]))
 
-            logger.info("Loading data")
+            logger.info("Load data")
+
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
 
-            model = MusCATModel()
-
             logger.info("Compute local disease progression stats")
+
+            model = MusCATModel()
             duration_cnt = model.fit_disease_progression(Ytrain)
 
             new_vec = np.zeros(10) # Max duration of 10 days
@@ -249,9 +286,11 @@ class TrainClient(fl.client.NumPyClient):
             duration_cnt = new_vec
 
             logger.info("Compute local symptom development stats")
+
             symptom_cnt, recov_cnt = model.fit_symptom_development(Ytrain)
 
             logger.info("Compute local exposure loads for each training day")
+
             le_res_act = actassign.loc[actassign["lid"] > 1000000000]
             le_other_act = actassign.loc[actassign["lid"] < 1000000000]
 
@@ -278,14 +317,58 @@ class TrainClient(fl.client.NumPyClient):
                 
                 eloads_actloc[day,:] = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
 
-            # TODO
-            #if round_prot ==  
-
-            return [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc], 0, {}
+            logger.info("Exposure load computation finished")
             
-        elif round_prot == prot.FEAT:
+            data_list = [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc]
 
-            duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc = parameters
+            if round_prot == prot.LOCAL_STATS_SECURE:
+                
+                logger.info("Encrypt local disease model parameters and exposure loads")
+
+                enc = encrypt_local_ndarrays(data_list)
+
+                return [enc], 0, {}
+
+            return data_list, 0, {}
+
+        elif round_prot in [prot.FEAT, prot.FEAT_SECURE]:
+
+            logger.info("Load training labels")
+
+            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+            max_res, max_actloc = np.load(self.client_dir / "max_indices.npy")
+
+            if round_prot == prot.FEAT:
+
+                duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc = parameters
+            
+            elif round_prot == prot.FEAT_SECURE:
+
+                logger.info("Finish decryption of aggregate statistics")
+
+                enc = parameters[0]
+                vec = collective_decrypt_final_step(enc)
+
+                # Unpack data
+                idx = 0
+                def unpack(V, nelem):
+                    ret = V[idx:idx+nelem]
+                    idx += nelem
+                    return ret
+
+                ndays = Ytrain.shape[1]
+
+                duration_cnt, symptom_cnt, recov_cnt = unpack(vec, 3)
+
+                eloads_pop = unpack(vec, ndays)
+
+                eloads_res = unpack(vec, ndays * (max_res + 1))
+                eloads_res = eloads_res.reshape((ndays, max_res + 1)).astype(np.float32)
+
+                eloads_actloc = unpack(vec, ndays * (max_actloc + 1))
+                eloads_actloc = eloads_actloc.reshape((ndays, max_actloc + 1)).astype(np.float32)
+
+                del vec # Free memory
 
             agg_data = {"duration_cnt":duration_cnt,
                         "symptom_cnt":symptom_cnt,
@@ -294,7 +377,7 @@ class TrainClient(fl.client.NumPyClient):
                         "eloads_res":eloads_res,
                         "eloads_actloc":eloads_actloc}
 
-            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+            logger.info("Load person, activity, population network tables")
 
             person = pd.read_csv(self.person_data_path)
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
@@ -302,21 +385,30 @@ class TrainClient(fl.client.NumPyClient):
 
             model = MusCATModel()
 
+            logger.info("Fit disease model using aggregate statistics")
+
             model.fit_disease_progression(Ytrain, agg_data)
             model.fit_symptom_development(Ytrain, agg_data)
+
+            logger.info("Prepare local variables for featurization")
 
             model.setup_features(person, actassign, popnet, id_map)
             
             infected = (Ytrain == 1).transpose()
 
+            logger.info("Generate training features for each day and sample instances")
+
             train_feat, train_label = model.get_train_feat_all_days(infected, Ytrain, 
                 NUM_DAYS_FOR_PRED, IMPUTE, NEG_TO_POS_RATIO, 
                 agg_data, id_map)
 
-            # Shuffle data instances
+            logger.info("Shuffle training data")
+
             rp = np.random.permutation(train_feat.shape[0])
             train_feat = train_feat[rp]
             train_label = train_label[rp]
+
+            logger.info("Save processed training data")
 
             np.save(self.client_dir / "train_feat.npy", train_feat)
             np.save(self.client_dir / "train_label.npy", train_label)
@@ -327,44 +419,101 @@ class TrainClient(fl.client.NumPyClient):
             model.center = np.zeros(train_feat.shape[1])
             model.scale = np.zeros(train_feat.shape[1])
 
+            logger.info("Save initialized model")
+
             model.save(self.client_dir, is_fed=True)
+
+            logger.info("Compute feature statistics")
 
             feat_sum = train_feat.sum(axis=0)
             feat_sqsum = (train_feat**2).sum(axis=0)
             feat_count = train_feat.shape[0]
 
-            return [feat_sum, feat_sqsum, feat_count], 0, {}
+            data_list = [feat_sum, feat_sqsum, feat_count]
+            
+            if round_prot == prot.FEAT_SECURE:
 
-        elif round_prot in [prot.ITER, prot.ITER_FIRST, prot.ITER_LAST]:
+                logger.info("Encrypt local feature statistics")
 
-            # Load model
+                enc = encrypt_local_ndarrays(data_list)
+                return [enc], 0, {}
+
+            return data_list, 0, {}
+
+        elif round_prot in [prot.ITER, prot.ITER_FIRST, prot.ITER_LAST,
+                            prot.ITER_FIRST_SECURE, prot.ITER_SECURE,
+                            prot.ITER_LAST_SECURE]:
+
+            
+            logger.info("Load model")
+
             model = MusCATModel()
             model.load(self.client_dir, is_fed=True)
             
-            # If first iter compute feature centers and scales
-            if round_prot == prot.ITER_FIRST:
-                feat_sum, feat_sqsum, feat_count = parameters
+            if round_prot in [prot.ITER_FIRST, prot.ITER_FIRST_SECURE]:
+
+                logger.info("First iter: compute feature means and standard deviations")
+
+                if round_prot == prot.ITER_FIRST:
+
+                    feat_sum, feat_sqsum, feat_count = parameters
+
+                elif round_prot == prot.ITER_FIRST_SECURE:
+
+                    logger.info("Finish decryption of feature statistics")
+
+                    enc = parameters[0]
+                    vec = collective_decrypt_final_step(enc)
+
+                    feat_sum, feat_sqsum, feat_count = vec
+
                 model.center = feat_sum / feat_count
                 model.scale = np.sqrt((feat_sqsum - (feat_sum**2)) / feat_count)
-            else: # If not first iter, then apply gradient update and save model
-                gradient_sum, sample_count = parameters
+
+            else: 
+
+                logger.info("Apply a model update based on previous gradients")
+                
+                if round_prot in [prot.ITER, prot.ITER_LAST]:
+    
+                    gradient_sum, sample_count = parameters
+                
+                elif round_prot in [prot.ITER_SECURE, prot.ITER_LAST_SECURE]:
+
+                    logger.info("Finish decryption of global sum of gradients")
+
+                    enc = parameters[0]
+                    vec = collective_decrypt_final_step(enc)
+
+                    gradient_sum, sample_count = vec[:-1], vec[-1]
+
                 model.weights -= SGD_LEARN_RATE * (gradient_sum / sample_count)
 
-                model.save(self.client_dir, is_fed=True)
+            logger.info("Save model")
+
+            model.save(self.client_dir, is_fed=True)
 
             # Skip gradient calculation if last iteration
-            if round_prot == prot.ITER_LAST:
+            if round_prot in [prot.ITER_LAST, prot.ITER_LAST_SECURE]:
+
+                logger.info("Training finished")
+
                 return [], 0, {}
 
-            # Load data
+            logger.info("Starting gradient computation")
+
+            logger.info("Load data")
+
             train_feat = np.load(self.client_dir / "train_feat.npy")
             train_label = np.load(self.client_dir / "train_label.npy")
             
-            # Standardize features
+            logger.info("Standardize features")
+
             train_feat -= model.center[np.newaxis,:]
             train_feat /= model.scale[np.newaxis,:]
 
-            # Sample a batch and compute gradient
+            logger.info("Sample a batch and compute gradients")
+
             batch_index = round_num % NUM_BATCHES
             batch_size = int(train_feat.shape[0] / NUM_BATCHES)
             batch_start = batch_index * batch_size
@@ -375,7 +524,17 @@ class TrainClient(fl.client.NumPyClient):
 
             gradient_sum, sample_count = model.compute_gradient_sum(batch_feat, batch_label)
 
-            return [gradient_sum, sample_count], 0, {}
+            data_list = [gradient_sum, sample_count]
+
+            if round_prot in [prot.ITER_SECURE, prot.ITER_FIRST_SECURE]:
+
+                logger.info("Encrypt local gradients")
+            
+                enc = encrypt_local_ndarrays(data_list)
+
+                return [enc], sample_count, {}
+
+            return data_list, sample_count, {}
 
         elif round_prot == prot.TEST_CPS:
             
@@ -385,33 +544,39 @@ class TrainClient(fl.client.NumPyClient):
             
             logger.info(">>>>>>>>>>>" + self.cid)
 
-            if self.cid == "1":
+            if self.cid == "client01":
                 intvec = np.array([1, 2, 3, 4, 5], dtype=np.int64)
             else:
                 intvec = np.array([5, 2, 0, 3, 10], dtype=np.int64)
-
-            infile = self.client_dir / "input.bin"
-            intvec.tofile(infile)
-
-            run("encrypt-vec-int", self.client_dir, infile)
-
-            enc = np.fromfile(self.client_dir / "output.bin", dtype=np.int8)
+            
+            enc = encrypt_local_ndarrays([intvec])
 
             return [enc], 0, {}
 
-        elif round_prot == prot.TEST_AGG_2:
+        elif round_prot in [prot.COLLECTIVE_DECRYPT, prot.TEST_AGG_2]:
 
             enc = parameters[0]
 
             infile = self.client_dir / "input.bin"
+            outfile = self.client_dir / "output.bin"
+            keyfile = self.client_dir / "decryption_token.bin"
+            dimfile = self.client_dir / "dimensions.txt"
+
+            logger.info("Save aggregated ciphertext data to disk")
+
             enc.tofile(infile)
 
-            # run("decrypt-test", self.client_dir, infile)
+            logger.info("Invoke MHE code for partial decryption")
 
-            run("decrypt-client-send", self.client_dir, infile)
+            # run("decrypt-test", self.client_dir, infile) # For debugging
 
-            enc = np.fromfile(self.client_dir / "output.bin")
-            arr = np.loadtxt(self.client_dir / "output.txt")
+            run("decrypt-client-send", self.client_dir, infile, outfile, keyfile, dimfile)
+
+            logger.info("Load intermediate decryption results from disk for aggregation")
+
+            enc = np.fromfile(outfile)
+
+            arr = np.loadtxt(dimfile)
             nr, nc = np.round(arr).astype(int)
 
             return [enc, np.array([nr, nc])], 0, {}
@@ -525,20 +690,25 @@ class TrainStrategy(fl.server.strategy.Strategy):
 
         if round_prot == prot.UNIFY_LOC:
             pass
-        elif round_prot == prot.LOCAL_STATS:
+        elif round_prot in [prot.LOCAL_STATS, prot.LOCAL_STATS_SECURE]:
 
             # Provide max_res and max_actloc to all clients
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
-        elif round_prot == prot.FEAT:
+        elif round_prot in [prot.FEAT, prot.FEAT_SECURE]:
 
-            # Provide various aggregated counts to all clients
+            # Provide local disease model stats and exposure loads to all clients
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
         elif round_prot in [prot.ITER, prot.ITER_FIRST, prot.ITER_LAST]:
 
             # Provide feature statistics to all clients
             # for main iterations, aggregated gradients
+            return ndarrays_to_fit_configuration(round_num, params, clients)
+
+        elif round_prot == prot.COLLECTIVE_DECRYPT:
+
+            # Broadcast aggregated ciphertext data 
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
         elif round_prot == prot.TEST_AGG_1:
@@ -650,7 +820,8 @@ class TrainStrategy(fl.server.strategy.Strategy):
         
         elif round_prot == prot.ITER_LAST:
             pass            
-        elif round_prot == prot.TEST_AGG_1:
+
+        elif round_prot in [prot.FEAT_SECURE, prot.LOCAL_STATS_SECURE, prot.TEST_AGG_1]:
 
             file_list = []
             for idx, res in enumerate(fit_res):
@@ -658,16 +829,18 @@ class TrainStrategy(fl.server.strategy.Strategy):
                 fname = self.server_dir / f"input_{idx}.bin"
                 enc.tofile(fname)
                 file_list.append(fname)
+            
+            outfile = self.server_dir / "output.bin"
 
-            run("aggregate-cipher", self.server_dir, *file_list)
+            run("aggregate-cipher", self.server_dir, outfile, *file_list)
 
-            enc = np.fromfile(self.server_dir / "output.bin", dtype=np.int8)
+            enc = np.fromfile(outfile, dtype=np.int8)
 
             params = fl.common.ndarrays_to_parameters(
                 [enc])
             return params, {}
 
-        elif round_prot == prot.TEST_AGG_2:
+        elif round_prot in [prot.COLLECTIVE_DECRYPT, prot.TEST_AGG_2]:
 
             file_list = []
             for idx, res in enumerate(fit_res):
@@ -677,9 +850,11 @@ class TrainStrategy(fl.server.strategy.Strategy):
                 enc.tofile(fname)
                 file_list.append(fname)
 
-            run("decrypt-server", self.server_dir, str(nr), str(nc), *file_list)
+            outfile = self.server_dir / "output.bin"
 
-            enc = np.fromfile(self.server_dir / "output.bin", dtype=np.int8)
+            run("decrypt-server", self.server_dir, str(nr), str(nc), outfile, *file_list)
+
+            enc = np.fromfile(outfile, dtype=np.int8)
 
             params = fl.common.ndarrays_to_parameters(
                 [enc])
