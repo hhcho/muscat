@@ -1,4 +1,4 @@
-package crypto
+package mhe
 
 import (
 	"bufio"
@@ -11,16 +11,15 @@ import (
 	"io"
 	"math"
 	"os"
-	"runtime"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/ldsec/lattigo/v2/ring"
 	"go.dedis.ch/onet/v3/log"
 
 	"github.com/ldsec/lattigo/v2/ckks"
+	"github.com/ldsec/lattigo/v2/ring"
 )
 
 type IntervalApprox struct {
@@ -81,12 +80,40 @@ type RotationType struct {
 	Side  bool
 }
 
-// CKKSParamsForTests are _unsecure_ and fast parameters
-//var CKKSParamsForTests = ckks.NewParametersFromLogModuli(8, 7, 1<<30, ckks.LogModuli{LogQi: []uint64{36, 30, 30, 30, 30, 30, 30, 30, 30, 30}, LogPi: []uint64{32, 32, 32}}, 3.2)
-
 // #------------------------------------#
 // #------------ INIT ------------------#
 // #------------------------------------#
+
+func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim int, numThreads int) []*CryptoParams {
+
+	kgen := ckks.NewKeyGenerator(params)
+
+	aggregateSk := ckks.NewSecretKey(params)
+	dummySk := ckks.NewSecretKey(params)
+
+	skList := make([]*ckks.SecretKey, nbrNodes)
+	rq, _ := ring.NewRing(params.N(), append(params.Qi(), params.Pi()...))
+
+	for i := 0; i < nbrNodes; i++ {
+		skList[i] = kgen.GenSecretKey()
+		rq.Add(aggregateSk.Value, skList[i].Value, aggregateSk.Value)
+	}
+	pk := kgen.GenPublicKey(aggregateSk)
+	rlk := kgen.GenRelinearizationKey(aggregateSk)
+
+	ret := make([]*CryptoParams, nbrNodes+1)
+
+	// Server
+	ret[0] = NewLocalCryptoParams(params, dummySk, dummySk, pk, rlk, numThreads)
+
+	// Clients
+	for i := 0; i < nbrNodes; i++ {
+		ret[i+1] = NewLocalCryptoParams(params, skList[i], dummySk, pk, rlk, numThreads)
+		ret[i+1].SetRotKeys(GenerateRotKeys(params.Slots(), smallDim, false))
+	}
+
+	return ret
+}
 
 // NewCryptoParams initializes CryptoParams with the given values
 func NewLocalCryptoParams(params *ckks.Parameters, sk, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, numThreads int) *CryptoParams {
@@ -153,6 +180,7 @@ func WriteFullFile(filename string, buf []byte) error {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	sbuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(sbuf, uint64(len(buf)))
 	writer := bufio.NewWriter(file)
@@ -183,36 +211,42 @@ func LoadFullFile(filename string) ([]byte, error) {
 }
 
 func SaveCryptoParamsAndRotKeys(pid int, path string, sk *ckks.SecretKey, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, rotks *ckks.RotationKeySet) {
+
 	skBytes, err := sk.MarshalBinary()
 	if err != nil {
 		log.Error("error marshalling secret key ", err)
 	}
+
 	err = WriteFullFile(path+"/sk.bin", skBytes)
 	if err != nil {
 		log.Error("error writing sk key ", err)
 	}
+
 	aggregateSkBytes, err := aggregateSk.MarshalBinary()
 	if err != nil {
 		log.Error("error marshalling secret key ", err)
 	}
+
 	err = WriteFullFile(path+"/aggregateSk.bin", aggregateSkBytes)
 	if err != nil {
 		log.Error("error writing aggregateSk key ", err)
 	}
+
 	pkBytes, err := pk.MarshalBinary()
-	log.LLvl1("length of PUBLIC KEY ", len(pkBytes))
 	if err != nil {
 		log.Error("error marshalling public key ", err)
 	}
+
 	err = WriteFullFile(path+"/pk.bin", pkBytes)
 	if err != nil {
 		log.Error("error writing pk key ", err)
 	}
+
 	rlkBytes, err := rlk.MarshalBinary()
-	log.LLvl1("length of RLK KEY ", len(rlkBytes))
 	if err != nil {
 		log.Error("error marshalling relinearization key ", err)
 	}
+
 	err = WriteFullFile(path+"/rlk.bin", rlkBytes)
 	if err != nil {
 		log.Error("error writing rlk key ", err)
@@ -220,16 +254,15 @@ func SaveCryptoParamsAndRotKeys(pid int, path string, sk *ckks.SecretKey, aggreg
 
 	if pid > 0 {
 		rotKsBytes, err := rotks.MarshalBinary()
-		log.LLvl1("length of ROTKS KEY ", len(rotKsBytes))
 		if err != nil {
 			log.Error("error marshalling rotation keys ", err)
 		}
+
 		err = WriteFullFile(path+"/rotks.bin", rotKsBytes)
 		if err != nil {
 			log.Error("error writing rotks key ", err)
 		}
 	}
-
 }
 
 func NewCryptoParamsFromDisk(isServer bool, pid int, numThreads int) *CryptoParams {
@@ -285,7 +318,6 @@ func NewCryptoParamsFromDisk(isServer bool, pid int, numThreads int) *CryptoPara
 		}
 		evaluators <- ckks.NewEvaluator(params, evalKey)
 	}
-	log.LLvl1("created evaluators")
 
 	encoders := make(chan ckks.Encoder, numThreads)
 	var wg sync.WaitGroup
@@ -502,29 +534,6 @@ func (cp *CryptoParams) SetEvaluators(params *ckks.Parameters, rlk *ckks.Relinea
 	cp.evaluators = evaluators
 }
 
-// NewCryptoParamsForNetwork initializes a set of nbrNodes CryptoParams each containing: keys, encoder, encryptor, decryptor, etc.
-func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, prec uint) []*CryptoParams {
-	kgen := ckks.NewKeyGenerator(params)
-
-	aggregateSk := ckks.NewSecretKey(params)
-	skList := make([]*ckks.SecretKey, nbrNodes)
-	rq, _ := ring.NewRing(params.N(), append(params.Qi(), params.Pi()...))
-
-	for i := 0; i < nbrNodes; i++ {
-		skList[i] = kgen.GenSecretKey()
-		rq.Add(aggregateSk.Value, skList[i].Value, aggregateSk.Value)
-	}
-	pk := kgen.GenPublicKey(aggregateSk)
-
-	ret := make([]*CryptoParams, nbrNodes)
-	for i := range ret {
-		rlk := kgen.GenRelinearizationKey(aggregateSk)
-		ret[i] = NewCryptoParams(params, skList[i], aggregateSk, pk, rlk, prec, runtime.GOMAXPROCS(0))
-	}
-
-	return ret
-}
-
 // SetRotKeys sets/adds new rotation keys
 func (cp *CryptoParams) SetRotKeys(nbrRot []RotationType) []int {
 	kgen := ckks.NewKeyGenerator(cp.Params)
@@ -557,22 +566,6 @@ func (cp *CryptoParams) SetRotKeys(nbrRot []RotationType) []int {
 	sort.Ints(ks)
 	return ks
 }
-
-//
-//// GenRot generates a left or right rotation of a ciphertext
-//func GenRot(cryptoParams *CryptoParams, rotation int, side bool, rotKeys *ckks.RotationKeys) *ckks.RotationKeys {
-//	kgen := ckks.NewKeyGenerator(cryptoParams.Params)
-//	if rotKeys == nil {
-//		rotKeys = ckks.NewRotationKeys()
-//	}
-//
-//	if side == SideRight {
-//		kgen.GenRot(ckks.RotationLeft, cryptoParams.AggregateSk, uint64(cryptoParams.GetSlots()-rotation), rotKeys)
-//	} else {
-//		kgen.GenRot(ckks.RotationLeft, cryptoParams.AggregateSk, uint64(rotation), rotKeys)
-//	}
-//	return rotKeys
-//}
 
 // Generate rotKeys for power of two shifts up to # of slots
 // and for every shift up to smallDim
@@ -859,18 +852,6 @@ func DecryptFloatVector(cryptoParams *CryptoParams, fEnc CipherVector, N int) []
 	return dataDecrypted[:N]
 }
 
-// DecryptFloatMatrix decrypts a matrix (kind of) of multiple packed ciphertexts.
-// For this specific matrix decryption each row is encrypted in a set of ciphertexts.
-// d is the number of column values
-func DecryptFloatMatrix(cryptoParams *CryptoParams, matrixEnc []CipherVector, d int) [][]float64 {
-	matrix := make([][]float64, 0)
-	for _, rowEnc := range matrixEnc {
-		row := DecryptFloatVector(cryptoParams, rowEnc, d)
-		matrix = append(matrix, row)
-	}
-	return matrix
-}
-
 // DecodeFloatVector decodes a slice of plaintext values in multiple float64 values.
 func DecodeFloatVector(cryptoParams *CryptoParams, fEncoded PlainVector) []float64 {
 	dataDecoded := make([]float64, 0)
@@ -935,8 +916,6 @@ func (cv *CipherVector) MarshalBinary() ([]byte, []int, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-
-		// log.LLvl1(time.Now().Format(time.RFC3339), "ct level byte: ", i, b[:8]) //first 8 bytes
 
 		data = append(data, b...)
 		ctSizes = append(ctSizes, len(b))

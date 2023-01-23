@@ -1,4 +1,4 @@
-package crypto
+package mhe
 
 import (
 	"bufio"
@@ -8,6 +8,7 @@ import (
 	"os"
 	"unsafe"
 
+	"github.com/ldsec/lattigo/v2/ckks"
 	"go.dedis.ch/onet/v3/log"
 )
 
@@ -18,22 +19,20 @@ func Max(x, y int) int {
 	return x
 }
 
-func Min(a int, b int) int {
-	if a > b {
-		return b
-	}
-	return a
-}
-func Mod(n int, modulus int) int {
-	n = n % modulus
-	if n < 0 {
-		n = n + modulus
-	}
-	return n
+func CAdd(cryptoParams *CryptoParams, X CipherVector, Y CipherVector) CipherVector {
+	res := make(CipherVector, len(X)) //equal num of ciphertexts
+	cryptoParams.WithEvaluator(func(eval ckks.Evaluator) error {
+		for i := 0; i < Max(len(Y), len(X)); i++ {
+			//check level
+			res[i] = eval.AddNew(X[i], Y[i])
+		}
+		return nil
+	})
+	return res
 }
 
 // MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
-func MarshalCM(cm CipherMatrix) ([]byte, []byte) {
+func MarshalCipherMatrix(cm CipherMatrix) ([]byte, []byte) {
 	cmBytes, ctSizes, err := cm.MarshalBinary()
 	if err != nil {
 		panic(err)
@@ -57,7 +56,7 @@ func MarshalCM(cm CipherMatrix) ([]byte, []byte) {
 }
 
 // MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
-func UnmarshalCM(cryptoParams *CryptoParams, r, c int, sbytes, ctbytes []byte) CipherMatrix {
+func UnmarshalCipherMatrix(cryptoParams *CryptoParams, r, c int, sbytes, ctbytes []byte) CipherMatrix {
 	intsize := uint64(8)
 	offset := uint64(0)
 	sizes := make([][]int, r)
@@ -89,7 +88,7 @@ func SaveCipherMatrixToFile(cps *CryptoParams, cm CipherMatrix, filename string)
 
 	writer := bufio.NewWriter(file)
 
-	sbytes, cmbytes := MarshalCM(cm)
+	sbytes, cmbytes := MarshalCipherMatrix(cm)
 
 	nrbuf := make([]byte, 4)
 	ncbuf := make([]byte, 4)
@@ -138,7 +137,7 @@ func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) (CipherMatrix,
 	cdata := make([]byte, cbyteSize)
 	io.ReadFull(reader, cdata)
 
-	return UnmarshalCM(cps, nrows, numCtxPerRow, sdata, cdata), err
+	return UnmarshalCipherMatrix(cps, nrows, numCtxPerRow, sdata, cdata), err
 }
 
 func SaveFloatVectorToFileBinary(filename string, x []float64) {
@@ -198,81 +197,3 @@ func LoadFloatVectorFromFile(filename string, n int) []float64 {
 
 	return out
 }
-
-//
-// // *** FILE MANAGEMENT
-//
-// // SaveModel saves weights/model to a binary file
-// func SaveModel(file string, model CipherMatrix) error {
-// 	binaryData, sizes, err := model.MarshalBinary()
-//
-// 	if err != nil {
-// 		return err
-// 	}
-//
-// 	data := make([]byte, binary.MaxVarintLen64*(len(sizes)*(1+len(sizes[0]))+1))
-//
-// 	index := 0
-// 	// Write the int array
-// 	index += binary.PutUvarint(data, uint64(len(sizes)))
-// 	for _, elt := range sizes {
-// 		index += binary.PutUvarint(data[index:], uint64(len(elt)))
-// 		for _, e := range elt {
-// 			index += binary.PutUvarint(data[index:], uint64(e))
-// 		}
-// 	}
-//
-// 	data = data[:index]
-// 	data = append(data, binaryData...)
-//
-// 	return ioutil.WriteFile(file, data, os.ModePerm)
-// }
-//
-// //
-// // // LoadModel loads weights/model to a binary file
-// func LoadModel(params *CryptoParams, file string) (CipherMatrix, error) {
-// 	bts, err := ioutil.ReadFile(file)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("reading file: %w", err)
-// 	}
-// 	reader := bytes.NewReader(bts)
-//
-// 	mainSize, err := binary.ReadUvarint(reader)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("reading uint: %w", err)
-// 	}
-//
-// 	sizes := make([][]int, mainSize)
-// 	for i := range sizes {
-// 		childSize, err := binary.ReadUvarint(reader)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("reading uint: %w", err)
-// 		}
-//
-// 		sizes[i] = make([]int, childSize)
-//
-// 		for j := range sizes[i] {
-// 			size, err := binary.ReadUvarint(reader)
-// 			if err != nil {
-// 				return nil, fmt.Errorf("reading uint: %w", err)
-// 			}
-//
-// 			sizes[i][j] = int(size)
-// 		}
-// 	}
-//
-// 	var mat = make(CipherMatrix, 0)
-//
-// 	f := make([]byte, reader.Len())
-// 	_, err = reader.Read(f)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("reading file block: %w", err)
-// 	}
-//
-// 	err = mat.UnmarshalBinary(params, f, sizes)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("unmarshalling weights: %w", err)
-// 	}
-//
-// 	return mat, nil
-// }

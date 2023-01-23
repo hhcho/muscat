@@ -2,38 +2,55 @@ package main
 
 import (
 	"encoding/binary"
-	"log"
+
 	"math"
+	"math/rand"
 	"os"
 	"strconv"
 
-	"github.com/hhcho/petchal/crypto"
-	"github.com/hhcho/petchal/mheexample"
-	"github.com/hhcho/petchal/mpc"
+	"log"
+
+	"github.com/hhcho/petchal/mhe"
 	"github.com/ldsec/lattigo/v2/ckks"
 )
 
 func main() {
-	// RunGWAS()
+
 	command := os.Args[1]
 
 	log.Println(command)
 
 	switch command {
+
 	case "setup":
 
 		numClients, _ := strconv.Atoi(os.Args[2])
-		smallDim := 100
+		localDirs := os.Args[3:]
 
-		cpsList := mpc.NewCryptoParamsForNetwork(ckks.DefaultParams[ckks.PN14QP438], numClients, smallDim, 1)
+		cpsList := mhe.NewCryptoParamsForNetwork(ckks.DefaultParams[ckks.PN14QP438], numClients, 0, 1)
+
+		sharedKeyForClients := make([]byte, 32)
+		rand.Read(sharedKeyForClients)
 
 		for i, cps := range cpsList {
-			crypto.SaveCryptoParamsAndRotKeys(i, os.Args[i+3], cps.Sk, cps.AggregateSk, cps.Pk, cps.Rlk, cps.RotKs)
+
+			mhe.SaveCryptoParamsAndRotKeys(i, localDirs[i], cps.Sk, cps.AggregateSk, cps.Pk, cps.Rlk, cps.RotKs)
+
+			if i > 0 {
+
+				err := mhe.WriteFullFile(localDirs[i]+"/shared_key.bin", sharedKeyForClients)
+				if err != nil {
+					log.Fatal("Error writing shared key")
+				}
+
+				if i == 1 {
+					mhe.WriteFullFile(localDirs[i]+"/mask.bin", []byte{1})
+				} else {
+					mhe.WriteFullFile(localDirs[i]+"/mask.bin", []byte{0})
+				}
+			}
+
 		}
-
-	case "cps-test":
-
-		mheexample.ClientEncryptVectorSimple(os.Args[2])
 
 	case "encrypt-vec":
 
@@ -41,7 +58,7 @@ func main() {
 		inFile := os.Args[3]
 		outFile := os.Args[4]
 
-		cps := crypto.NewCryptoParamsFromDiskPath(false, pid_path, 1)
+		cps := mhe.NewCryptoParamsFromDiskPath(false, pid_path, 1)
 
 		b, err := os.ReadFile(inFile)
 		if err != nil {
@@ -60,20 +77,20 @@ func main() {
 			vec[i] = math.Float64frombits(bits)
 		}
 
-		vecEnc, _ := crypto.EncryptFloatVector(cps, vec)
+		vecEnc, _ := mhe.EncryptFloatVector(cps, vec)
 
-		crypto.SaveCipherMatrixToFile(cps, crypto.CipherMatrix{vecEnc}, outFile)
+		mhe.SaveCipherMatrixToFile(cps, mhe.CipherMatrix{vecEnc}, outFile)
 
 	case "decrypt-test":
 
 		pid_path := os.Args[2]
 		inFile := os.Args[3]
 
-		cps := crypto.NewCryptoParamsFromDiskPath(false, pid_path, 1)
+		cps := mhe.NewCryptoParamsFromDiskPath(false, pid_path, 1)
 
-		matDec, _ := crypto.LoadCipherMatrixFromFile(cps, inFile)
+		matDec, _ := mhe.LoadCipherMatrixFromFile(cps, inFile)
 
-		out := crypto.DecryptFloatVector(cps, matDec[0], 5)
+		out := mhe.DecryptFloatVector(cps, matDec[0], 5)
 
 		log.Println(out)
 
@@ -83,21 +100,21 @@ func main() {
 		outFile := os.Args[3]
 		inFiles := os.Args[4:]
 
-		cps := crypto.NewCryptoParamsFromDiskPath(true, pid_path, 1)
+		cps := mhe.NewCryptoParamsFromDiskPath(true, pid_path, 1)
 
-		var out crypto.CipherMatrix
+		var out mhe.CipherMatrix
 		for _, f := range inFiles {
-			matDec, _ := crypto.LoadCipherMatrixFromFile(cps, f)
+			matDec, _ := mhe.LoadCipherMatrixFromFile(cps, f)
 			if out == nil {
 				out = matDec
 			} else {
 				for i := range matDec {
-					out[i] = crypto.CAdd(cps, out[i], matDec[i])
+					out[i] = mhe.CAdd(cps, out[i], matDec[i])
 				}
 			}
 		}
 
-		crypto.SaveCipherMatrixToFile(cps, out, outFile)
+		mhe.SaveCipherMatrixToFile(cps, out, outFile)
 
 	case "decrypt-client-send":
 
@@ -107,7 +124,7 @@ func main() {
 		keyFile := os.Args[5]
 		dimFile := os.Args[6]
 
-		mheexample.CollectiveDecryptClientSend(pidPath, inFile, outFile, keyFile, dimFile)
+		mhe.CollectiveDecryptClientSend(pidPath, inFile, outFile, keyFile, dimFile)
 
 	case "decrypt-server":
 
@@ -117,7 +134,7 @@ func main() {
 		outFile := os.Args[5]
 		inFiles := os.Args[6:]
 
-		mheexample.CollectiveDecryptServer(pidPath, nr, nc, outFile, inFiles)
+		mhe.CollectiveDecryptServer(pidPath, nr, nc, outFile, inFiles)
 
 	case "decrypt-client-receive":
 
@@ -127,7 +144,7 @@ func main() {
 		keyFile := os.Args[5]
 		outFile := os.Args[6]
 
-		mheexample.CollectiveDecryptClientReceive(pidPath, inFile, serverFile, keyFile, outFile)
+		mhe.CollectiveDecryptClientReceive(pidPath, inFile, serverFile, keyFile, outFile)
 
 	}
 }

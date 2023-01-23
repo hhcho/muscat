@@ -142,8 +142,7 @@ def train_setup(server_dir: Path, client_dirs_dict: Dict[str, Path]):
 
     client_paths = [str(v) for _,v in client_dirs_dict.items()]
 
-    # TODO uncomment 
-    # run("setup", str(len(client_dirs_dict)), str(server_dir), *client_paths)
+    run("setup", str(len(client_dirs_dict)), str(server_dir), *client_paths)
     
 
 def train_client_factory(
