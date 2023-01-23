@@ -175,9 +175,10 @@ func LoadFullFile(filename string) ([]byte, error) {
 	sbuf := make([]byte, 8)
 	io.ReadFull(reader, sbuf)
 	sbyteSize := binary.LittleEndian.Uint64(sbuf)
-	log.LLvl1(sbyteSize)
+
 	sdata := make([]byte, sbyteSize)
 	io.ReadFull(reader, sdata)
+
 	return sdata, err
 }
 

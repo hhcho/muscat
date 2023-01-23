@@ -47,18 +47,18 @@ def run(*args: str):
 # With original ciphertext data to decrypt in inFile and intermediate
 # aggregated data sent from server in enc, finish collective decryption
 # keyFile includes cached state from the previous step of this protocol
-def collective_decrypt_final_step(enc):
+def collective_decrypt_final_step(client_dir, enc):
 
     # Files from the previous round (prot.COLLECTIVE_DECRYPT)
-    inFile = self.client_dir / "input.bin" 
-    keyFile = self.client_dir / "decryption_token.bin"
+    inFile = client_dir / "input.bin" 
+    keyFile = client_dir / "decryption_token.bin"
 
-    outFile = self.client_dir / "output.bin"
-    serverFile = self.client_dir / "server.bin"
+    outFile = client_dir / "output.bin"
+    serverFile = client_dir / "server.bin"
 
     enc.tofile(serverFile)
 
-    run("decrypt-client-receive", self.client_dir, inFile, serverFile, keyFile, outFile)
+    run("decrypt-client-receive", client_dir, inFile, serverFile, keyFile, outFile)
 
     vec = np.fromfile(outFile, dtype=np.float64)
 
@@ -66,14 +66,14 @@ def collective_decrypt_final_step(enc):
 
 # Take a list of ndarrays and transform into 
 # encrypted binary data
-def encrypt_local_ndarrays(data_list):
+def encrypt_local_ndarrays(client_dir, data_list):
     arr = np.hstack([np.ravel(v) for v in data_list]).astype(np.float64)
     
-    infile = self.client_dir / "input.bin"
-    outfile = self.client_dir / "output.bin"
+    infile = client_dir / "input.bin"
+    outfile = client_dir / "output.bin"
     arr.tofile(infile)
 
-    run("encrypt-vec", self.client_dir, infile, outfile)
+    run("encrypt-vec", client_dir, infile, outfile)
 
     enc = np.fromfile(outfile, dtype=np.int8)
 
@@ -325,7 +325,7 @@ class TrainClient(fl.client.NumPyClient):
                 
                 logger.info("Encrypt local disease model parameters and exposure loads")
 
-                enc = encrypt_local_ndarrays(data_list)
+                enc = encrypt_local_ndarrays(self.client_dir, data_list)
 
                 return [enc], 0, {}
 
@@ -347,7 +347,7 @@ class TrainClient(fl.client.NumPyClient):
                 logger.info("Finish decryption of aggregate statistics")
 
                 enc = parameters[0]
-                vec = collective_decrypt_final_step(enc)
+                vec = collective_decrypt_final_step(self.client_dir, enc)
 
                 # Unpack data
                 idx = 0
@@ -435,7 +435,7 @@ class TrainClient(fl.client.NumPyClient):
 
                 logger.info("Encrypt local feature statistics")
 
-                enc = encrypt_local_ndarrays(data_list)
+                enc = encrypt_local_ndarrays(self.client_dir, data_list)
                 return [enc], 0, {}
 
             return data_list, 0, {}
@@ -463,7 +463,7 @@ class TrainClient(fl.client.NumPyClient):
                     logger.info("Finish decryption of feature statistics")
 
                     enc = parameters[0]
-                    vec = collective_decrypt_final_step(enc)
+                    vec = collective_decrypt_final_step(self.client_dir, enc)
 
                     feat_sum, feat_sqsum, feat_count = vec
 
@@ -483,7 +483,7 @@ class TrainClient(fl.client.NumPyClient):
                     logger.info("Finish decryption of global sum of gradients")
 
                     enc = parameters[0]
-                    vec = collective_decrypt_final_step(enc)
+                    vec = collective_decrypt_final_step(self.client_dir, enc)
 
                     gradient_sum, sample_count = vec[:-1], vec[-1]
 
@@ -530,7 +530,7 @@ class TrainClient(fl.client.NumPyClient):
 
                 logger.info("Encrypt local gradients")
             
-                enc = encrypt_local_ndarrays(data_list)
+                enc = encrypt_local_ndarrays(self.client_dir, data_list)
 
                 return [enc], sample_count, {}
 
@@ -549,7 +549,7 @@ class TrainClient(fl.client.NumPyClient):
             else:
                 intvec = np.array([5, 2, 0, 3, 10], dtype=np.int64)
             
-            enc = encrypt_local_ndarrays([intvec])
+            enc = encrypt_local_ndarrays(self.client_dir, [intvec])
 
             return [enc], 0, {}
 
@@ -587,11 +587,11 @@ class TrainClient(fl.client.NumPyClient):
 
             inFile = self.client_dir / "input.bin"
             outFile = self.client_dir / "output.bin"
-
             serverFile = self.client_dir / "server.bin"
+            keyFile = self.client_dir / "decryption_token.bin"
             enc.tofile(serverFile)
 
-            run("decrypt-client-receive", self.client_dir, inFile, serverFile)
+            run("decrypt-client-receive", self.client_dir, inFile, serverFile, keyFile, outFile)
 
             vec = np.fromfile(outFile, dtype=np.float64)
 
@@ -1046,14 +1046,18 @@ class TestClient(fl.client.NumPyClient):
 
         logger.info(f">>>>> TestClient: fit round {round_num} ({round_prot})")
 
-        if round_prot == prot.PRED_LOCAL_STATS:
+        if round_prot in [prot.PRED_LOCAL_STATS, prot.PRED_LOCAL_STATS_SECURE]:
+
+            logger.info("Load data")
 
             max_res, max_actloc = np.load(self.client_dir / "max_indices.npy")
 
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
 
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
-            
+
+            logger.info("Compute local exposure loads")
+
             day = -1 # Last day
             infected = Ytrain[:,day] == 1
             
@@ -1073,34 +1077,103 @@ class TestClient(fl.client.NumPyClient):
             
             eloads_actloc = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
 
-            return [eloads_pop, eloads_res, eloads_actloc], 0, {}
+            data_list = [eloads_pop, eloads_res, eloads_actloc]
 
-        elif round_prot == prot.PRED_FEAT:
+            if round_prot == prot.PRED_LOCAL_STATS_SECURE:
+                
+                logger.info("Encrypt local exposure loads")
 
-            eloads_pop, eloads_res, eloads_actloc = parameters
+                enc = encrypt_local_ndarrays(self.client_dir, data_list)
+
+                return [enc], 0, {}
+
+            return data_list, 0, {}
+        
+        elif round_prot in [prot.PRED_FEAT, prot.PRED_FEAT_SECURE]:
+            
+            logger.info("Load disease outcomes")
+            
+            max_res, max_actloc = np.load(self.client_dir / "max_indices.npy")
+            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+
+            if round_prot == prot.PRED_FEAT:
+
+                eloads_pop, eloads_res, eloads_actloc = parameters
+
+            elif round_prot == prot.PRED_FEAT_SECURE:
+
+                logger.info("Finish decryption of global exposure loads")
+
+                enc = parameters[0]
+                vec = collective_decrypt_final_step(self.client_dir, enc)
+
+                # Unpack data
+                idx = 0
+                def unpack(V, nelem):
+                    ret = V[idx:idx+nelem]
+                    idx += nelem
+                    return ret
+
+                eloads_pop = unpack(vec, 1)
+                eloads_res = unpack(vec, max_res + 1).astype(np.float32)
+                eloads_actloc = unpack(vec, max_actloc + 1).astype(np.float32)
+
 
             agg_data = {"eloads_pop":eloads_pop,
                         "eloads_res":eloads_res,
                         "eloads_actloc":eloads_actloc}
 
-            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+            logger.info("Load person, activity, population network tables")
 
             person = pd.read_csv(self.person_data_path)
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
             popnet = pd.read_csv(self.population_network_data_path)
 
-            model = MusCATModel()
+            logger.info("Load model")
 
+            model = MusCATModel()
             model.load(self.client_dir, is_fed=True)
 
+            logger.info("Setup local variables for featurization")
+
             model.setup_features(person, actassign, popnet, id_map)
+
+            logger.info("Compute test features")
 
             infected = (Ytrain[:,-1] == 1).transpose()
 
             test_feat = model.get_test_feat(infected, Ytrain, self.num_days_for_pred,
                                             self.impute, agg_data, id_map)
 
+            logger.info("Save test features")
+
             np.save(self.client_dir / "test_feat.npy", test_feat)
+        
+        elif round_prot == prot.COLLECTIVE_DECRYPT:
+
+            enc = parameters[0]
+
+            infile = self.client_dir / "input.bin"
+            outfile = self.client_dir / "output.bin"
+            keyfile = self.client_dir / "decryption_token.bin"
+            dimfile = self.client_dir / "dimensions.txt"
+
+            logger.info("Save aggregated ciphertext data to disk")
+
+            enc.tofile(infile)
+
+            logger.info("Invoke MHE code for partial decryption")
+
+            run("decrypt-client-send", self.client_dir, infile, outfile, keyfile, dimfile)
+
+            logger.info("Load intermediate decryption results from disk for aggregation")
+
+            enc = np.fromfile(outfile)
+
+            arr = np.loadtxt(dimfile)
+            nr, nc = np.round(arr).astype(int)
+
+            return [enc, np.array([nr, nc])], 0, {}
 
         else:
             logger.info(f"Unimplemented round {round_num} ({round_prot})")
@@ -1147,17 +1220,22 @@ class TestClient(fl.client.NumPyClient):
         
         logger.info(f">>>>> TestClient: evaluate")
 
-        Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+        logger.info("Load model")
 
         model = MusCATModel()
-
         model.load(self.client_dir, is_fed=True)
 
+        logger.info("Load test features and data")
+
+        Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
         test_feat = np.load(self.client_dir / "test_feat.npy")
 
-        # Standardize features
+        logger.info("Standardize features")
+
         test_feat -= model.center[np.newaxis,:]
         test_feat /= model.scale[np.newaxis,:]
+
+        logger.info("Make predictions")
 
         pred = (self.weights[0] + feat @ self.weights[1:]).ravel()
     
@@ -1168,6 +1246,8 @@ class TestClient(fl.client.NumPyClient):
         # Ignore people who are already infected or have recovered
         pred[Ytrain[:,-1] == 1] = 0
         pred[Ytrain[:,-1] == 2] = 0
+
+        logger.info("Export predictions")
 
         id_file = cache_dir / "unique_pids.npy"
         uid = np.load(id_file)
@@ -1249,9 +1329,9 @@ class TestStrategy(fl.server.strategy.Strategy):
         clients = list(client_manager.all().values())
         params = fl.common.parameters_to_ndarrays(parameters)
 
-        if round_prot == prot.PRED_LOCAL_STATS:
+        if round_prot in [prot.PRED_LOCAL_STATS, prot.PRED_LOCAL_STATS_SECURE]:
             pass
-        elif round_prot == prot.PRED_FEAT:
+        elif round_prot in [prot.PRED_FEAT, prot.PRED_FEAT_SECURE, prot.COLLECTIVE_DECRYPT]:
 
             # Provide aggregate exposure loads to all clients
             return ndarrays_to_fit_configuration(round_num, params, clients)
@@ -1293,7 +1373,27 @@ class TestStrategy(fl.server.strategy.Strategy):
                 [eloads_pop, eloads_res, eloads_actloc])
             return params, {}
 
-        elif round_prot == prot.PRED_FEAT:
+        elif round_prot in [prot.COLLECTIVE_DECRYPT, prot.PRED_LOCAL_STATS_SECURE]:
+            
+            file_list = []
+            for idx, res in enumerate(fit_res):
+                enc = res[0]
+                nr, nc = res[1]
+                fname = self.server_dir / f"input_{idx}.bin"
+                enc.tofile(fname)
+                file_list.append(fname)
+
+            outfile = self.server_dir / "output.bin"
+
+            run("decrypt-server", self.server_dir, str(nr), str(nc), outfile, *file_list)
+
+            enc = np.fromfile(outfile, dtype=np.int8)
+
+            params = fl.common.ndarrays_to_parameters(
+                [enc])
+            return params, {}
+
+        elif round_prot in [prot.PRED_FEAT, prot.PRED_FEAT_SECURE]:
             pass            
         else:
             logger.info(f"Unimplemented round {round_num} ({round_prot})")

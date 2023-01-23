@@ -44,9 +44,9 @@ class workflow:
                 prot.FEAT_SECURE,
                 prot.COLLECTIVE_DECRYPT,
                 prot.ITER_FIRST_SECURE,
-                *[prot.COLLECTIVE_DECRYPT,
-                  prot.ITER_SECURE] * (num_iters - 2),
-                prot.COLLECTIVE_DECRYPT
+                *([prot.COLLECTIVE_DECRYPT,
+                   prot.ITER_SECURE] * (num_iters - 2)),
+                prot.COLLECTIVE_DECRYPT,
                 prot.ITER_LAST_SECURE]
 
     # Plaintext training workflow
@@ -56,18 +56,19 @@ class workflow:
                 prot.LOCAL_STATS,
                 prot.FEAT,
                 prot.ITER_FIRST,
-                *[prot.ITER] * (num_iters - 2),
+                *([prot.ITER] * (num_iters - 2)),
                 prot.ITER_LAST]
 
     # Secure test workflow
     SECURE_TEST_ROUNDS = [None,
-        prot.LOCAL_STATS_SECURE,
-        prot.FEAT_SECURE
+        prot.PRED_LOCAL_STATS_SECURE,
+        prot.COLLECTIVE_DECRYPT,
+        prot.PRED_FEAT_SECURE
     ]
 
     PLAIN_TEST_ROUNDS = [None,
-        prot.LOCAL_STATS,
-        prot.FEAT
+        prot.PRED_LOCAL_STATS,
+        prot.PRED_FEAT
     ]
 
     # Debugging test workflow
