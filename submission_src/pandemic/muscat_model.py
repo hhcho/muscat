@@ -223,12 +223,12 @@ class MusCATModel:
             out = self.ce_A_combined @ out
         return np.vstack([self.ce_A_list[atype] @ out for atype in range(len(self.ce_A_list))])
 
-    def beliefs_to_all_features(self, beliefs, agg_data=None, id_map=None):
+    def beliefs_to_all_features(self, beliefs, agg_data=None, day=None, id_map=None):
         if len(beliefs.shape) == 1:
             beliefs = beliefs[np.newaxis,:]
         ndays = beliefs.shape[0]
 
-        eloads = self.compute_exposure_loads(beliefs[-1], agg_data)
+        eloads = self.compute_exposure_loads(beliefs[-1], agg_data, day)
 
         pe_feat = self.eloads_to_pop_feat(eloads)    
         le_feat = self.eloads_to_loc_feat(eloads, id_map)
@@ -248,7 +248,7 @@ class MusCATModel:
 
         return y_pred
 
-    def get_test_feat(self, beliefs, Ytrain, ndays_for_feat=1, impute=False):
+    def get_test_feat(self, beliefs, Ytrain, ndays_for_feat=1, impute=False, agg_data=None, id_map=None):
 
         beliefs_updated = beliefs[-ndays_for_feat:].copy().astype(np.float32)
 
@@ -258,7 +258,7 @@ class MusCATModel:
                 asym = (Ytrain[:,d_idx] == 0) & (Ytrain[:,d_idx+1] == 2) # recovered on day d_idx+1
                 beliefs_updated[:d2+1,asym.ravel()] = self.prob_delta_cumul[-d2-1:][:,np.newaxis]
 
-        test_feat = self.beliefs_to_all_features(beliefs_updated).transpose().astype(np.float32)
+        test_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, 0, id_map).transpose().astype(np.float32)
 
         return test_feat
 
@@ -289,7 +289,7 @@ class MusCATModel:
                     beliefs_updated[:d2+1,asym.ravel()] = self.prob_delta_cumul[-d2-1:][:,np.newaxis]
                         
             # Construct features from previous beliefs
-            all_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, id_map)
+            all_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, d-1, id_map)
 
             # Positive cases
             pos_feat = all_feat[:,np.where(pos)[0]]

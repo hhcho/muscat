@@ -39,7 +39,7 @@ TRAIN_ROUND_NAMES = [None, # Round number starts at 1
 
 TEST_ROUND_NAMES = [None, # Round number starts at 1
     'compute infection stats and exposure loads',
-    'construct test features and predict',
+    'construct test features'
 ]
 
 def run(*args: str):
@@ -220,9 +220,9 @@ class TrainClient(fl.client.NumPyClient):
         
         elif round_name == 'compute infection stats and exposure loads':
 
-            logger.info(f"Params: {parameters}")
-
             max_res, max_actloc = parameters
+
+            np.save(self.client_dir / "max_indices.npy", np.array([max_res, max_actloc]))
 
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
 
@@ -285,7 +285,7 @@ class TrainClient(fl.client.NumPyClient):
             popnet = pd.read_csv(self.population_network_data_path)
 
             model = MusCATModel()
-            
+
             model.fit_disease_progression(Ytrain, agg_data)
             model.fit_symptom_development(Ytrain, agg_data)
 
@@ -302,13 +302,16 @@ class TrainClient(fl.client.NumPyClient):
             train_feat = train_feat[rp]
             train_label = train_label[rp]
 
+            np.save(self.client_dir / "train_feat.npy", train_feat)
+            np.save(self.client_dir / "train_label.npy", train_label)
+
+            model.num_days_for_pred = NUM_DAYS_FOR_PRED
+            model.impute = IMPUTE
             model.weights = np.zeros(1 + train_feat.shape[1])
             model.center = np.zeros(train_feat.shape[1])
             model.scale = np.zeros(train_feat.shape[1])
 
             model.save(self.client_dir, is_fed=True)
-            np.save(self.client_dir / "train_feat.npy", train_feat)
-            np.save(self.client_dir / "train_label.npy", train_label)
 
             feat_sum = train_feat.sum(axis=0)
             feat_sqsum = (train_feat**2).sum(axis=0)
@@ -654,13 +657,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
             dictionary containing task-specific metrics (e.g., accuracy).
         """
 
-        # Write model to disk if last round. No actual evaluation.
-
         logger.info(">>>>> TrainStrategy: evaluate")
-
-        if server_round == len(TRAIN_ROUND_NAMES) - 1:
-            # model.save(self.server_dir)
-            logger.info(">>>>> TrainStrategy: TODO: save model")
 
         return None
 
@@ -745,7 +742,79 @@ class TestClient(fl.client.NumPyClient):
     preds_format_path: Path
     preds_dest_path: Path
 
-    def evaluate(self, ins: EvaluateIns) -> EvaluateRes:
+    def fit(self, parameters: List[np.ndarray], config: dict
+    ) -> Tuple[List[np.ndarray], int, dict]:
+
+        round_num = int(config['round'])
+        round_name = TEST_ROUND_NAMES[round_num]
+
+        logger.info(f">>>>> TestClient: fit round {round_num} ({round_name})")
+
+        if round_name == 'compute infection stats and exposure loads':
+
+            max_res, max_actloc = np.load(self.client_dir / "max_indices.npy")
+
+            actassign = pd.read_csv(self.activity_location_assignment_data_path)
+
+            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+            
+            day = -1 # Last day
+            infected = Ytrain[:,day] == 1
+            
+            eloads_pop = infected.sum()
+
+            pids = np.array([id_map[v] for v in le_res_act["pid"]])
+            val = infected[pids] * le_res_act["duration"]/3600
+            I = np.zeros(len(le_res_act), dtype=int)
+            J = le_res_act["lid"] - 1000000001
+            
+            eloads_res = coo_matrix((val, (I, J)), shape=(1, max_res + 1)).toarray()[0]
+        
+            pids = np.array([id_map[v] for v in le_other_act["pid"]])
+            val = infected[pids] * le_other_act["duration"]/3600
+            I = np.zeros(len(le_other_act), dtype=int)
+            J = le_other_act["lid"] - 1
+            
+            eloads_actloc = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
+
+            return [eloads_pop, eloads_res, eloads_actloc], 0, {}
+
+        elif round_name == 'construct test features':
+
+            eloads_pop, eloads_res, eloads_actloc = parameters
+
+            agg_data = {"eloads_pop":eloads_pop,
+                        "eloads_res":eloads_res,
+                        "eloads_actloc":eloads_actloc}
+
+            Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+
+            person = pd.read_csv(self.person_data_path)
+            actassign = pd.read_csv(self.activity_location_assignment_data_path)
+            popnet = pd.read_csv(self.population_network_data_path)
+
+            model = MusCATModel()
+
+            model.load(self.client_dir, is_fed=True)
+
+            model.setup_features(person, actassign, popnet, id_map)
+
+            infected = (Ytrain[:,-1] == 1).transpose()
+
+            test_feat = model.get_test_feat(infected, Ytrain, self.num_days_for_pred,
+                                            self.impute, agg_data, id_map)
+
+            np.save(self.client_dir / "test_feat.npy", test_feat)
+
+        else:
+            logger.info(f"Unimplemented round {round_num} ({round_name})")
+
+        # Default return values
+        return [], 0, {}
+
+
+    def evaluate(self, parameters: List[np.ndarray], config: dict
+    ) -> Tuple[float, int, dict]:
         """Evaluate the provided parameters using the locally held dataset.
 
         Parameters
@@ -779,20 +848,46 @@ class TestClient(fl.client.NumPyClient):
         # Make predictions on the test split. Use model parameters from server.
         # set_model_parameters(self.model, parameters)
         # predictions = self.model.predict(self.disease_outcome_df)
-        # predictions.loc[self.preds_format_df.index].to_csv(self.preds_path)
-        # logger.info(f"Client test predictions saved to disk for client {self.cid}.")
-        # # Return empty metrics. We're not actually evaluating anything
-
-        res = EvaluateRes(
-            status=Status(Code.OK, message=''),
-            loss=0,
-            parameters=Parameters([], ''),
-            num_examples=self.num_examples,
-            metrics={},
-        )
         
-        logger.info(f">>>>> TestClient: evaluate res: {res}")
-        return res
+        logger.info(f">>>>> TestClient: evaluate")
+
+        Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
+
+        model = MusCATModel()
+
+        model.load(self.client_dir, is_fed=True)
+
+        test_feat = np.load(self.client_dir / "test_feat.npy")
+
+        # Standardize features
+        test_feat -= model.center[np.newaxis,:]
+        test_feat /= model.scale[np.newaxis,:]
+
+        pred = (self.weights[0] + feat @ self.weights[1:]).ravel()
+    
+        scaler = MinMaxScaler()
+        scaler.fit(pred)
+        pred = scaler.transform(pred)
+
+        # Ignore people who are already infected or have recovered
+        pred[Ytrain[:,-1] == 1] = 0
+        pred[Ytrain[:,-1] == 2] = 0
+
+        id_file = cache_dir / "unique_pids.npy"
+        uid = np.load(id_file)
+
+        pred_df = pd.Series(
+            data=pred.ravel(),
+            name="score",
+            index=pd.Index(data=uid, name="pid"),
+        )
+
+        preds_format_df = pd.read_csv(self.preds_format_path)
+
+        predictions.loc[preds_format_df.pid].to_csv(self.preds_path)
+        logger.info(f"Client test predictions saved to disk for client {self.cid}.")
+        
+        return 0, 0, {}
 
 
 def test_strategy_factory(
@@ -823,6 +918,7 @@ class TestStrategy(fl.server.strategy.Strategy):
     """Custom Flower strategy for test."""
     server_dir: Path
 
+    # Not used
     def initialize_parameters(
         self, client_manager: ClientManager
     ) -> Optional[Parameters]:
@@ -839,59 +935,104 @@ class TestStrategy(fl.server.strategy.Strategy):
             If parameters are returned, then the server will treat these as the
             initial global model parameters.
         """
-        # TODO provide real implementation
-
-        # logger.info("Loading saved model from checkpoint...")
-        # last_checkpoint_path = sorted(self.server_dir.glob("model-*.json"))[-1]
-        # model = SirModel.load(last_checkpoint_path)
-        # parameters_ndarrays = to_parameters_ndarrays(model.numerator, model.denominator)
-        # parameters = fl.common.ndarrays_to_parameters(parameters_ndarrays)
-        # logger.info(
-        #     f"Model parameters loaded from checkpoint {last_checkpoint_path.name}"
-        # )
-        # return parameters
-
+        
         logger.info(">>>>> TestStrategy: initialize_parameters")
+        
         return Parameters([], '')
-
 
     def configure_fit(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, FitIns]]:
-        """Do nothing and return empty list. We don't need to fit clients for test."""
-        return []
+
+        round_num = server_round
+        round_name = TEST_ROUND_NAMES[round_num]
+        
+        logger.info(f">>>>> TestStrategy: configure_fit round {round_num} ({round_name})")
+
+        clients = list(client_manager.all().values())
+        params = fl.common.parameters_to_ndarrays(parameters)
+
+        if round_name == 'compute infection stats and exposure loads':
+            pass
+        elif round_name == 'construct test features':
+
+            # Provide aggregate exposure loads to all clients
+            return ndarrays_to_fit_configuration(round_num, params, clients)
+
+        else:
+            logger.info(f"Unimplemented round {round_num} ({round_name})")
+
+        # Default configuration: pass nothing
+        return ndarrays_to_fit_configuration(round_num, [], clients)
+
 
     def aggregate_fit(
         self, server_round: int, results: List[Tuple[ClientProxy, FitRes]],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], dict]:
-        """Do nothing and return empty results. No fit results to aggregate for test."""
+        
+        round_num = server_round
+        round_name = TEST_ROUND_NAMES[round_num]
+
+        logger.info(f">>>>> TestStrategy: aggregate_fit round {round_num} ({round_name})")
+
+        if len(failures) > 0:
+            raise Exception(f"Client fit round had {len(failures)} failures.")
+
+        # results is List[Tuple[ClientProxy, FitRes]]
+        # convert FitRes to List[List[np.ndarray]]
+        fit_res = [
+            fl.common.parameters_to_ndarrays(fit_res.parameters)
+            for _, fit_res in results
+        ]
+
+        if round_name == 'compute infection stats and exposure loads':
+            
+            eloads_pop = np.sum([res[0] for res in fit_res], axis=0)
+            eloads_res = np.sum([res[1] for res in fit_res], axis=0)
+            eloads_actloc = np.sum([res[2] for res in fit_res], axis=0)
+
+            params = fl.common.ndarrays_to_parameters(
+                [eloads_pop, eloads_res, eloads_actloc])
+            return params, {}
+
+        elif round_name == 'construct test features':
+            pass            
+        else:
+            logger.info(f"Unimplemented round {round_num} ({round_name})")
+
+        # Default return values
         return None, {}
 
+
+    # Not used
     def configure_evaluate(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, EvaluateIns]]:
         """Run evaluate on all clients to make test predictions."""
-        # TODO provider real implementation ?
+        
         logger.info(">>>>> TestStrategy: configure_evaluate")
+        
         evaluate_ins = EvaluateIns(parameters, {})
         clients = list(client_manager.all().values())
         return [(client, evaluate_ins) for client in clients]
 
-
+    # Not used
     def aggregate_evaluate(
         self, server_round: int, results: List[Tuple[ClientProxy, EvaluateRes]],
         failures: List[Union[Tuple[ClientProxy, EvaluateRes], BaseException]],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
         """Do nothing and return empty results. Not actually evaluating any metrics."""
-        # TODO provider real implementation ?
+        
         logger.info(">>>>> TestStrategy: aggregate_evaluate")
+        
         return None, {}
 
-
+    # Not used
     def evaluate(
         self, server_round: int, parameters: Parameters,
     ) -> Optional[Tuple[float, Dict[str, Scalar]]]:
-        # TODO provider real implementation ?
+
         logger.info(">>>>> TestStrategy: evaluate")
+
         return None
