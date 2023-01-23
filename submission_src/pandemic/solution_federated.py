@@ -16,6 +16,7 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm 
+import itertools
 
 from .muscat_model import MusCATModel
 
@@ -29,12 +30,16 @@ ADAM_LEARN_RATE = 0.005
 SGD_LEARN_RATE = 0.01
 
 TRAIN_ROUND_NAMES = [None, # Round number starts at 1
-    'unify locations',
-    'compute infection stats and exposure loads',
-    'construct training features and scaler',
-    'model learning first iter',
-    *['model learning iter'] * (NUM_ITERS - 2),
-    'model learning last iter'
+    'test agg 1', 
+    'test agg 2', 
+    'test agg 3', 
+    # 'test cps', 
+    # 'unify locations',
+    # 'compute infection stats and exposure loads',
+    # 'construct training features and scaler',
+    # 'model learning first iter',
+    # *['model learning iter'] * (NUM_ITERS - 2),
+    # 'model learning last iter'
 ]
 
 TEST_ROUND_NAMES = [None, # Round number starts at 1
@@ -91,6 +96,28 @@ def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path):
         np.save(cache_dir / "disease_outcome_matrix.npy", Ytrain)
 
     return Ytrain, id_map
+
+def train_setup(server_dir: Path, client_dirs_dict: Dict[str, Path]):
+    """
+    Perform initial setup between parties before federated training. 
+
+    Args:
+        server_dir (Path): Path to a directory specific to the server/aggregator
+            that is available over the simulation. The server can use this
+            directory for saving and reloading server state. Using this 
+            directory is required for the trained model to be persisted between
+            training and test stages.
+        client_dirs_dict (Dict[str, Path]): Dictionary of paths to the directories 
+            specific to each client that is available over the simulation. Clients 
+            can use these directory for saving and reloading client state. This
+            dictionary is keyed by the client ID. 
+    """
+
+    client_paths = [str(v) for _,v in client_dirs_dict.items()]
+
+    # TODO uncomment 
+    # run("setup", str(len(client_dirs_dict)), str(server_dir), *client_paths)
+    
 
 def train_client_factory(
     cid: str,
@@ -361,11 +388,66 @@ class TrainClient(fl.client.NumPyClient):
 
             return [gradient_sum, sample_count], 0, {}
 
+        elif round_name == 'test cps':
+            
+            run("cps-test", self.client_dir)
+
+        elif round_name == 'test agg 1':
+            
+            logger.info(">>>>>>>>>>>" + self.cid)
+
+            if self.cid == "1":
+                intvec = np.array([1, 2, 3, 4, 5], dtype=np.int64)
+            else:
+                intvec = np.array([5, 2, 0, 3, 10], dtype=np.int64)
+
+            infile = self.client_dir / "input.bin"
+            intvec.tofile(infile)
+
+            run("encrypt-vec-int", self.client_dir, infile)
+
+            enc = np.fromfile(self.client_dir / "output.bin", dtype=np.int8)
+
+            return [enc], 0, {}
+
+        elif round_name == 'test agg 2':
+
+            enc = parameters[0]
+
+            infile = self.client_dir / "input.bin"
+            enc.tofile(infile)
+
+            # run("decrypt-test", self.client_dir, infile)
+
+            run("decrypt-client-send", self.client_dir, infile)
+
+            enc = np.fromfile(self.client_dir / "output.bin")
+            arr = np.loadtxt(self.client_dir / "output.txt")
+            nr, nc = np.round(arr).astype(int)
+
+            return [enc, np.array([nr, nc])], 0, {}
+
+        elif round_name == 'test agg 3':
+
+            enc = parameters[0]
+
+            inFile = self.client_dir / "input.bin"
+            outFile = self.client_dir / "output.bin"
+
+            serverFile = self.client_dir / "server.bin"
+            enc.tofile(serverFile)
+
+            run("decrypt-client-receive", self.client_dir, inFile, serverFile)
+
+            vec = np.fromfile(outFile, dtype=np.float64)
+
+            logger.info(repr(vec))
+
         else:
             logger.info(f"Unimplemented round {round_num} ({round_name})")
 
         # Default return values
-        return [], self.num_examples, {}
+        return [], 0, {}
 
 def train_strategy_factory(
     server_dir: Path,
@@ -470,6 +552,17 @@ class TrainStrategy(fl.server.strategy.Strategy):
 
         elif  round_name == 'model learning last iter':
             pass
+        elif round_name == 'test agg 1':
+            pass
+
+        elif round_name == 'test agg 2':
+
+            return ndarrays_to_fit_configuration(round_num, params, clients)
+
+        elif round_name == 'test agg 3':
+
+            return ndarrays_to_fit_configuration(round_num, params, clients)
+
         else:
             logger.info(f"Unimplemented round {round_num} ({round_name})")
 
@@ -567,6 +660,42 @@ class TrainStrategy(fl.server.strategy.Strategy):
         
         elif round_name == 'model learning last iter':
             pass            
+        elif round_name == 'test agg 1':
+
+            file_list = []
+            for idx, res in enumerate(fit_res):
+                enc = res[0]
+                fname = self.server_dir / f"input_{idx}.bin"
+                enc.tofile(fname)
+                file_list.append(fname)
+
+            run("aggregate-cipher", self.server_dir, *file_list)
+
+            enc = np.fromfile(self.server_dir / "output.bin", dtype=np.int8)
+
+            params = fl.common.ndarrays_to_parameters(
+                [enc])
+            return params, {}
+        elif round_name == 'test agg 2':
+
+            file_list = []
+            for idx, res in enumerate(fit_res):
+                enc = res[0]
+                nr, nc = res[1]
+                fname = self.server_dir / f"input_{idx}.bin"
+                enc.tofile(fname)
+                file_list.append(fname)
+
+            run("decrypt-server", self.server_dir, str(nr), str(nc), *file_list)
+
+            enc = np.fromfile(self.server_dir / "output.bin", dtype=np.int8)
+
+            params = fl.common.ndarrays_to_parameters(
+                [enc])
+            return params, {}
+
+        elif round_name == 'test agg 3':
+            pass
         else:
             logger.info(f"Unimplemented round {round_num} ({round_name})")
 

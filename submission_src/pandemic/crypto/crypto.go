@@ -136,6 +136,17 @@ func NewLocalCryptoParams(params *ckks.Parameters, sk, aggregateSk *ckks.SecretK
 	}
 }
 
+func AppendFullFile(writer *bufio.Writer, buf []byte) error {
+	sbuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(sbuf, uint64(len(buf)))
+
+	writer.Write(sbuf)
+	writer.Write(buf)
+	writer.Flush()
+
+	return nil
+}
+
 func WriteFullFile(filename string, buf []byte) error {
 	file, err := os.Create(filename)
 	defer file.Close()
@@ -170,12 +181,12 @@ func LoadFullFile(filename string) ([]byte, error) {
 	return sdata, err
 }
 
-func SaveCryptoParamsAndRotKeys(pid int, sk *ckks.SecretKey, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, rotks *ckks.RotationKeySet) {
+func SaveCryptoParamsAndRotKeys(pid int, path string, sk *ckks.SecretKey, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, rotks *ckks.RotationKeySet) {
 	skBytes, err := sk.MarshalBinary()
 	if err != nil {
 		log.Error("error marshalling secret key ", err)
 	}
-	err = WriteFullFile(strconv.Itoa(pid)+"_sk.bin", skBytes)
+	err = WriteFullFile(path+"/sk.bin", skBytes)
 	if err != nil {
 		log.Error("error writing sk key ", err)
 	}
@@ -183,7 +194,7 @@ func SaveCryptoParamsAndRotKeys(pid int, sk *ckks.SecretKey, aggregateSk *ckks.S
 	if err != nil {
 		log.Error("error marshalling secret key ", err)
 	}
-	err = WriteFullFile(strconv.Itoa(pid)+"_aggregateSk.bin", aggregateSkBytes)
+	err = WriteFullFile(path+"/aggregateSk.bin", aggregateSkBytes)
 	if err != nil {
 		log.Error("error writing aggregateSk key ", err)
 	}
@@ -192,7 +203,7 @@ func SaveCryptoParamsAndRotKeys(pid int, sk *ckks.SecretKey, aggregateSk *ckks.S
 	if err != nil {
 		log.Error("error marshalling public key ", err)
 	}
-	err = WriteFullFile(strconv.Itoa(pid)+"_pk.bin", pkBytes)
+	err = WriteFullFile(path+"/pk.bin", pkBytes)
 	if err != nil {
 		log.Error("error writing pk key ", err)
 	}
@@ -201,7 +212,7 @@ func SaveCryptoParamsAndRotKeys(pid int, sk *ckks.SecretKey, aggregateSk *ckks.S
 	if err != nil {
 		log.Error("error marshalling relinearization key ", err)
 	}
-	err = WriteFullFile(strconv.Itoa(pid)+"_rlk.bin", rlkBytes)
+	err = WriteFullFile(path+"/rlk.bin", rlkBytes)
 	if err != nil {
 		log.Error("error writing rlk key ", err)
 	}
@@ -212,7 +223,7 @@ func SaveCryptoParamsAndRotKeys(pid int, sk *ckks.SecretKey, aggregateSk *ckks.S
 		if err != nil {
 			log.Error("error marshalling rotation keys ", err)
 		}
-		err = WriteFullFile(strconv.Itoa(pid)+"_rotks.bin", rotKsBytes)
+		err = WriteFullFile(path+"/rotks.bin", rotKsBytes)
 		if err != nil {
 			log.Error("error writing rotks key ", err)
 		}
@@ -257,6 +268,105 @@ func NewCryptoParamsFromDisk(isServer bool, pid int, numThreads int) *CryptoPara
 	rotks := new(ckks.RotationKeySet)
 	if pid > 0 {
 		rotKsBytes, err := LoadFullFile(strconv.Itoa(pid) + "_rotks.bin")
+		if err != nil {
+			log.Error("error reading rotation keys ", err)
+		}
+		rotks.UnmarshalBinary(rotKsBytes)
+	}
+
+	params := ckks.DefaultParams[ckks.PN14QP438]
+
+	evaluators := make(chan ckks.Evaluator, numThreads)
+	for i := 0; i < numThreads; i++ {
+		evalKey := ckks.EvaluationKey{
+			Rlk:  rlk,
+			Rtks: rotks,
+		}
+		evaluators <- ckks.NewEvaluator(params, evalKey)
+	}
+	log.LLvl1("created evaluators")
+
+	encoders := make(chan ckks.Encoder, numThreads)
+	var wg sync.WaitGroup
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			encoders <- ckks.NewEncoderBig(params, 256)
+		}()
+	}
+	wg.Wait()
+
+	encryptors := make(chan ckks.Encryptor, numThreads)
+	for i := 0; i < numThreads; i++ {
+		encryptors <- ckks.NewEncryptorFromPk(params, pk)
+	}
+
+	decryptors := make(chan ckks.Decryptor, numThreads)
+	masterDecryptors := make(chan ckks.Decryptor, numThreads)
+	if !isServer {
+		for i := 0; i < numThreads; i++ {
+			decryptors <- ckks.NewDecryptor(params, sk)
+		}
+		for i := 0; i < numThreads; i++ {
+			masterDecryptors <- ckks.NewDecryptor(params, aggregateSk)
+		}
+	}
+
+	return &CryptoParams{
+		Params:      params,
+		Sk:          sk,
+		AggregateSk: aggregateSk,
+		Pk:          pk,
+		Rlk:         rlk,
+
+		encoders:         encoders,
+		encryptors:       encryptors,
+		decryptors:       decryptors,
+		masterDecryptors: masterDecryptors,
+		evaluators:       evaluators,
+
+		numThreads: numThreads,
+		prec:       256,
+		RotKs:      rotks,
+	}
+}
+
+func NewCryptoParamsFromDiskPath(isServer bool, pid_path string, numThreads int) *CryptoParams {
+	// Read back the keys
+	rlk := new(ckks.RelinearizationKey)
+	rlkBytes, err := LoadFullFile(pid_path + "/rlk.bin")
+	if err != nil {
+		log.Error("error reading relinearization key ", err)
+	}
+	rlk.UnmarshalBinary(rlkBytes)
+
+	pk := new(ckks.PublicKey)
+	pkBytes, err := LoadFullFile(pid_path + "/pk.bin")
+	if err != nil {
+		log.Error("error reading public key ", err)
+	}
+	pk.UnmarshalBinary(pkBytes)
+
+	sk := new(ckks.SecretKey)
+	if !isServer {
+		skBytes, err := LoadFullFile(pid_path + "/sk.bin")
+		if err != nil {
+			log.Error("error reading secret key ", err)
+		}
+		sk.UnmarshalBinary(skBytes)
+	}
+
+	aggregateSk := new(ckks.SecretKey)
+	aggregateSkBytes, err := LoadFullFile(pid_path + "/aggregateSk.bin")
+	if err != nil {
+		log.Error("error reading secret key ", err)
+	}
+	aggregateSk.UnmarshalBinary(aggregateSkBytes)
+
+	rotks := new(ckks.RotationKeySet)
+	if !isServer {
+		rotKsBytes, err := LoadFullFile(pid_path + "/rotks.bin")
 		if err != nil {
 			log.Error("error reading rotation keys ", err)
 		}

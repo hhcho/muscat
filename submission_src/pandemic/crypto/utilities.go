@@ -141,6 +141,22 @@ func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) (CipherMatrix,
 	return UnmarshalCM(cps, nrows, numCtxPerRow, sdata, cdata), err
 }
 
+func SaveFloatVectorToFileBinary(filename string, x []float64) {
+	file, err := os.Create(filename)
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	writer := bufio.NewWriter(file)
+
+	for i := range x {
+		binary.Write(writer, binary.LittleEndian, x[i])
+	}
+
+	writer.Flush()
+}
+
 func SaveFloatVectorToFile(filename string, x []float64) {
 	file, err := os.Create(filename)
 	defer file.Close()

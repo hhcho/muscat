@@ -2,10 +2,11 @@ package mpc
 
 import (
 	"fmt"
-	"github.com/hhcho/petchal/crypto"
 	"runtime"
 	"sort"
 	"sync"
+
+	"github.com/hhcho/petchal/crypto"
 
 	"github.com/aead/chacha20/chacha"
 	"github.com/hhcho/frand"
@@ -21,6 +22,7 @@ func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim i
 	kgen := ckks.NewKeyGenerator(params)
 
 	aggregateSk := ckks.NewSecretKey(params)
+	dummySk := ckks.NewSecretKey(params)
 	skList := make([]*ckks.SecretKey, nbrNodes)
 	rq, _ := ring.NewRing(params.N(), append(params.Qi(), params.Pi()...))
 
@@ -29,15 +31,19 @@ func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim i
 		rq.Add(aggregateSk.Value, skList[i].Value, aggregateSk.Value)
 	}
 	pk := kgen.GenPublicKey(aggregateSk)
+	rlk := kgen.GenRelinearizationKey(aggregateSk)
 
-	ret := make([]*crypto.CryptoParams, nbrNodes)
-	for i := range ret {
-		rlk := kgen.GenRelinearizationKey(aggregateSk)
-		ret[i] = crypto.NewLocalCryptoParams(params, skList[i], aggregateSk, pk, rlk, numThreads)
+	ret := make([]*crypto.CryptoParams, nbrNodes+1)
 
-		readyForRots := ret[i].SetRotKeys(crypto.GenerateRotKeys(params.Slots(), smallDim, false))
-		log.LLvl1("READY FOR ROTS ", readyForRots)
+	// Server
+	ret[0] = crypto.NewLocalCryptoParams(params, dummySk, dummySk, pk, rlk, numThreads)
+
+	// Clients
+	for i := 0; i < nbrNodes; i++ {
+		ret[i+1] = crypto.NewLocalCryptoParams(params, skList[i], aggregateSk, pk, rlk, numThreads)
+		ret[i+1].SetRotKeys(crypto.GenerateRotKeys(params.Slots(), smallDim, false))
 	}
+
 	return ret
 }
 

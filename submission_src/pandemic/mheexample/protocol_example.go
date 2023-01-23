@@ -1,9 +1,15 @@
 package mheexample
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/hhcho/petchal/crypto"
 	"github.com/hhcho/petchal/mpc"
 	"github.com/ldsec/lattigo/v2/ckks"
@@ -11,8 +17,6 @@ import (
 	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/utils"
 	"go.dedis.ch/onet/v3/log"
-	"strconv"
-	"time"
 )
 
 type ExampleProtocolInfo struct {
@@ -116,9 +120,9 @@ func (pi *ExampleProtocolInfo) ExampleProtocol() {
 
 		// TEST DECRYPTION *************************************************************************************
 		if pid == 1 {
-			CollectiveDecryptClientSend(pid, "test_decryption", "dec")
+			// CollectiveDecryptClientSend(pid, "test_decryption", "dec")
 		} else if pid == 2 {
-			CollectiveDecryptClientSend(pid, "test_decryption", "dec")
+			// CollectiveDecryptClientSend(pid, "test_decryption", "dec")
 		}
 
 		// JUST FOR SYNCHRO
@@ -131,7 +135,7 @@ func (pi *ExampleProtocolInfo) ExampleProtocol() {
 		}
 
 		if pid == 1 { // plays the server role
-			CollectiveDecryptServer("test_decryption", "dec", "decrypted")
+			// CollectiveDecryptServer("test_decryption", "dec", "decrypted")
 		}
 
 		// JUST FOR SYNCHRO
@@ -144,13 +148,13 @@ func (pi *ExampleProtocolInfo) ExampleProtocol() {
 		}
 
 		if pid == 1 {
-			CollectiveDecryptClientReceive(pid, "test_decryption", "decrypted", "decryptedRes")
-			matrixRead := crypto.LoadFloatVectorFromFile("decryptedRes", 10)
-			log.LLvl1("decryption ", matrixRead)
+			// CollectiveDecryptClientReceive(pid, "test_decryption", "decrypted", "decryptedRes")
+			// matrixRead := crypto.LoadFloatVectorFromFile("decryptedRes", 10)
+			// log.LLvl1("decryption ", matrixRead)
 		} else if pid == 2 {
-			CollectiveDecryptClientReceive(pid, "test_decryption", "decrypted", "decryptedRes_2")
-			matrixReadNew := crypto.LoadFloatVectorFromFile("decryptedRes_2", 10)
-			log.LLvl1("decryption ", matrixReadNew)
+			// CollectiveDecryptClientReceive(pid, "test_decryption", "decrypted", "decryptedRes_2")
+			// matrixReadNew := crypto.LoadFloatVectorFromFile("decryptedRes_2", 10)
+			// log.LLvl1("decryption ", matrixReadNew)
 		}
 
 		if pid == 1 {
@@ -162,6 +166,15 @@ func (pi *ExampleProtocolInfo) ExampleProtocol() {
 		}
 	}
 
+}
+
+func ClientEncryptVectorSimple(pid_path string) {
+	cps := crypto.NewCryptoParamsFromDiskPath(false, pid_path, 1)
+	vectorToAggr := []float64{1, 2, 3, 4, 5}
+	vectorToAggrEncr, _ := crypto.EncryptFloatVector(cps, vectorToAggr)
+
+	// test decryption
+	log.LLvl1("CLIENT ", crypto.DecryptFloatVector(cps, vectorToAggrEncr, 5))
 }
 
 func ClientEncryptVector(pid int, vectorfileName string, vectorSize int) {
@@ -408,8 +421,8 @@ func CollectiveBootstrapServer(vectorsToBootstrap string, out_path string) {
 }
 
 // REF CollectiveDecryptMat
-func CollectiveDecryptClientSend(pid int, vectorToDecryptFile string, out_path string) {
-	cps := crypto.NewCryptoParamsFromDisk(false, pid, 1)
+func CollectiveDecryptClientSend(pidPath string, vectorToDecryptFile string) {
+	cps := crypto.NewCryptoParamsFromDiskPath(false, pidPath, 1)
 	parameters := cps.Params
 	skShard := cps.Sk.Value
 	vectorToBootstrap, _ := crypto.LoadCipherMatrixFromFile(cps, vectorToDecryptFile)
@@ -426,7 +439,9 @@ func CollectiveDecryptClientSend(pid int, vectorToDecryptFile string, out_path s
 	// save key for reuse
 	token := make([]byte, 32)
 	rand.Read(token)
-	crypto.WriteFullFile("token_decryption", token)
+
+	crypto.WriteFullFile(pidPath+"/decryption_token.bin", token)
+
 	pcksProtocol := dckks.NewPCKSProtocolDeterPRNG(parameters, 6.36, token)
 
 	decShare := make([][]dckks.PCKSShare, nr)
@@ -438,28 +453,32 @@ func CollectiveDecryptClientSend(pid int, vectorToDecryptFile string, out_path s
 		}
 	}
 
+	file, err := os.Create(pidPath + "/output.bin")
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	writer := bufio.NewWriter(file)
+
 	// TODO add mask
 	// decAgg
 	for r := range decShare {
 		for c := range decShare[r] {
 			for i := range decShare[r][c] {
 				decShareBytes, _ := decShare[r][c][i].MarshalBinary()
-				crypto.WriteFullFile(out_path+"_"+strconv.Itoa(pid)+"_"+strconv.Itoa(r)+"_"+strconv.Itoa(c)+"_"+strconv.Itoa(i), decShareBytes)
+				crypto.AppendFullFile(writer, decShareBytes)
 			}
 		}
 	}
+
+	crypto.SaveFloatVectorToFile(pidPath+"/output.txt", []float64{float64(nr), float64(nc)})
 }
 
-func CollectiveDecryptServer(vectorsToDecFile string, in_path string, out_path string) {
-	cps := crypto.NewCryptoParamsFromDisk(true, 1, 1)
+func CollectiveDecryptServer(pidPath string, nr, nc int, inFiles []string) {
+	cps := crypto.NewCryptoParamsFromDiskPath(true, pidPath, 1)
 
 	parameters := cps.Params
-	//skShard := cps.Sk.Value
-	vectorsToDec, _ := crypto.LoadCipherMatrixFromFile(cps, vectorsToDecFile)
-	tmp := vectorsToDec
-	nr := len(tmp)
-	nc := len(tmp[0])
-	//level := tmp[0][0].Level()
 
 	zeroPoly := parameters.NewPolyQP()
 
@@ -479,72 +498,100 @@ func CollectiveDecryptServer(vectorsToDecFile string, in_path string, out_path s
 		}
 	}
 
-	fileIndex := 1
-
-	for {
-		_, err := crypto.LoadFullFile(in_path + "_" + strconv.Itoa(fileIndex) + "_0_0_0")
+	for _, f := range inFiles {
+		file, err := os.Open(f)
+		defer file.Close()
 		if err != nil {
-			break
+			log.Fatal(err)
 		}
+
+		reader := bufio.NewReader(file)
+
 		for r := range decShare {
 			for c := range decShare[r] {
 				for i := range decShare[r][c] {
 					newPolyClient := new(ring.Poly)
-					readPolyBytes, err := crypto.LoadFullFile(in_path + "_" + strconv.Itoa(fileIndex) + "_" + strconv.Itoa(r) + "_" + strconv.Itoa(c) + "_" + strconv.Itoa(i))
-					log.LLvl1(err)
-					newPolyClient.UnmarshalBinary(readPolyBytes)
+
+					sbuf := make([]byte, 8)
+					io.ReadFull(reader, sbuf)
+					nBytes := binary.LittleEndian.Uint64(sbuf)
+
+					buf := make([]byte, nBytes)
+					io.ReadFull(reader, buf)
+
+					newPolyClient.UnmarshalBinary(buf)
+
 					level := len(newPolyClient.Coeffs) - 1
 					dckksContext.RingQ.AddLvl(level, newPolyClient, decShare[r][c][i], decShare[r][c][i])
 				}
 			}
 		}
-		fileIndex++
 	}
+
 	// save to file to send
+	file, err := os.Create(pidPath + "/output.bin")
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	writer := bufio.NewWriter(file)
+
+	// TODO add mask
 	for r := range decShare {
 		for c := range decShare[r] {
 			for i := range decShare[r][c] {
 				decShareBytes, _ := decShare[r][c][i].MarshalBinary()
-				crypto.WriteFullFile(out_path+"_"+strconv.Itoa(r)+"_"+strconv.Itoa(c)+"_"+strconv.Itoa(i), decShareBytes)
+				crypto.AppendFullFile(writer, decShareBytes)
 			}
 		}
 	}
 }
 
-func CollectiveDecryptClientReceive(pid int, vectorToDecryptFile string, server_polysPath string, out_path string) {
-	cps := crypto.NewCryptoParamsFromDisk(false, pid, 1)
+func CollectiveDecryptClientReceive(pidPath string, vectorToDecryptFile string, server_polysPath string) {
+	cps := crypto.NewCryptoParamsFromDiskPath(false, pidPath, 1)
+
 	parameters := cps.Params
-	//skShard := cps.Sk.Value
+
 	vectorToDecrypt, _ := crypto.LoadCipherMatrixFromFile(cps, vectorToDecryptFile)
 	cm := vectorToDecrypt
 	nr := len(cm)
 	nc := len(cm[0])
-	log.LLvl1("AAAH", nr, nc)
+
 	level := cm[0][0].Level()
 	scale := cm[0][0].Scale()
 
-	token, _ := crypto.LoadFullFile("token_decryption")
+	token, _ := crypto.LoadFullFile(pidPath + "/decryption_token.bin")
 	pcksProtocol := dckks.NewPCKSProtocolDeterPRNG(parameters, 6.36, token)
 	//dckksContext := dckks.NewContext(cps.Params)
 
 	decShare := make([][]dckks.PCKSShare, nr)
 	for r := range decShare {
 		decShare[r] = make([]dckks.PCKSShare, nc)
-		//for c := range decShare[r] {
-		//	decShare[r][c] = pcksProtocol.AllocateShares(level)
-		//}
 	}
+
+	file, err := os.Open(server_polysPath)
+	defer file.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	reader := bufio.NewReader(file)
 
 	for r := range decShare {
 		for c := range decShare[r] {
 			for i := range decShare[r][c] {
 				newPolyServer := new(ring.Poly)
-				readPolyBytes, err := crypto.LoadFullFile(server_polysPath + "_" + strconv.Itoa(r) + "_" + strconv.Itoa(c) + "_" + strconv.Itoa(i))
-				log.LLvl1(err)
-				newPolyServer.UnmarshalBinary(readPolyBytes)
+
+				sbuf := make([]byte, 8)
+				io.ReadFull(reader, sbuf)
+				nBytes := binary.LittleEndian.Uint64(sbuf)
+
+				buf := make([]byte, nBytes)
+				io.ReadFull(reader, buf)
+
+				newPolyServer.UnmarshalBinary(buf)
 				decShare[r][c][i] = newPolyServer
-				//level := len(newPoly.Coeffs) - 1
-				//dckksContext.RingQ.AddLvl(level, newPoly, decShare[r][c][i], decShare[r][c][i])
 			}
 		}
 	}
@@ -560,5 +607,5 @@ func CollectiveDecryptClientReceive(pid int, vectorToDecryptFile string, server_
 	log.LLvl1(len(pm), len(cm), len(cm[0]))
 	pmDecoded := crypto.DecodeFloatVector(cps, pm)
 
-	crypto.SaveFloatVectorToFile(out_path, pmDecoded)
+	crypto.SaveFloatVectorToFileBinary(pidPath+"/output.bin", pmDecoded)
 }
