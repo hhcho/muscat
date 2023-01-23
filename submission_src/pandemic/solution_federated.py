@@ -216,7 +216,7 @@ class TrainClient(fl.client.NumPyClient):
         round_num = int(config['round'])
         round_prot = TRAIN_ROUNDS[round_num]
 
-        logger.info(f">>>>> TrainClient: fit round {round_num} (Prot-{round_prot})")
+        logger.info(f">>>>> TrainClient: fit round {round_num} ({round_prot})")
 
         if round_prot == prot.UNIFY_LOC:
 
@@ -433,7 +433,7 @@ class TrainClient(fl.client.NumPyClient):
             logger.info(repr(vec))
 
         else:
-            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
+            logger.info(f"Unimplemented round {round_num} ({round_prot})")
 
         # Default return values
         return [], 0, {}
@@ -518,7 +518,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
         round_num = server_round
         round_prot = TRAIN_ROUNDS[round_num]
         
-        logger.info(f">>>>> TrainStrategy: configure_fit round {round_num} (Prot-{round_prot})")
+        logger.info(f">>>>> TrainStrategy: configure_fit round {round_num} ({round_prot})")
 
         clients = list(client_manager.all().values())
         params = fl.common.parameters_to_ndarrays(parameters)
@@ -553,7 +553,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
         else:
-            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
+            logger.info(f"Unimplemented round {round_num} ({round_prot})")
 
         # Default configuration: pass nothing
         return ndarrays_to_fit_configuration(round_num, [], clients)
@@ -596,7 +596,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
         round_num = server_round
         round_prot = TRAIN_ROUNDS[round_num]
 
-        logger.info(f">>>>> TrainStrategy: aggregate_fit round {round_num} (Prot-{round_prot})")
+        logger.info(f">>>>> TrainStrategy: aggregate_fit round {round_num} ({round_prot})")
 
         if len(failures) > 0:
             raise Exception(f"Client fit round had {len(failures)} failures.")
@@ -688,7 +688,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
         elif round_prot == prot.TEST_AGG_3:
             pass
         else:
-            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
+            logger.info(f"Unimplemented round {round_num} ({round_prot})")
 
         # Default return values
         return None, {}
@@ -869,7 +869,7 @@ class TestClient(fl.client.NumPyClient):
         round_num = int(config['round'])
         round_prot = TEST_ROUNDS[round_num]
 
-        logger.info(f">>>>> TestClient: fit round {round_num} (Prot-{round_prot})")
+        logger.info(f">>>>> TestClient: fit round {round_num} ({round_prot})")
 
         if round_prot == prot.PRED_LOCAL_STATS:
 
@@ -928,7 +928,7 @@ class TestClient(fl.client.NumPyClient):
             np.save(self.client_dir / "test_feat.npy", test_feat)
 
         else:
-            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
+            logger.info(f"Unimplemented round {round_num} ({round_prot})")
 
         # Default return values
         return [], 0, {}
@@ -1069,7 +1069,7 @@ class TestStrategy(fl.server.strategy.Strategy):
         round_num = server_round
         round_prot = TEST_ROUNDS[round_num]
         
-        logger.info(f">>>>> TestStrategy: configure_fit round {round_num} (Prot-{round_prot})")
+        logger.info(f">>>>> TestStrategy: configure_fit round {round_num} ({round_prot})")
 
         clients = list(client_manager.all().values())
         params = fl.common.parameters_to_ndarrays(parameters)
@@ -1082,7 +1082,7 @@ class TestStrategy(fl.server.strategy.Strategy):
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
         else:
-            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
+            logger.info(f"Unimplemented round {round_num} ({round_prot})")
 
         # Default configuration: pass nothing
         return ndarrays_to_fit_configuration(round_num, [], clients)
@@ -1096,7 +1096,7 @@ class TestStrategy(fl.server.strategy.Strategy):
         round_num = server_round
         round_prot = TEST_ROUNDS[round_num]
 
-        logger.info(f">>>>> TestStrategy: aggregate_fit round {round_num} (Prot-{round_prot})")
+        logger.info(f">>>>> TestStrategy: aggregate_fit round {round_num} ({round_prot})")
 
         if len(failures) > 0:
             raise Exception(f"Client fit round had {len(failures)} failures.")
@@ -1121,7 +1121,7 @@ class TestStrategy(fl.server.strategy.Strategy):
         elif round_prot == prot.PRED_FEAT:
             pass            
         else:
-            logger.info(f"Unimplemented round {round_num} (Prot-{round_prot})")
+            logger.info(f"Unimplemented round {round_num} ({round_prot})")
 
         # Default return values
         return None, {}
