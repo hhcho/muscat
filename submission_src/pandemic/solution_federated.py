@@ -25,21 +25,22 @@ from .muscat_privacy_config import MusCATPrivacy
 NUM_DAYS_FOR_PRED = 2
 IMPUTE = True
 NEG_TO_POS_RATIO = 3
-NUM_EPOCHS = 2
+NUM_EPOCHS = 1
 NUM_BATCHES = 20
 NUM_ITERS = NUM_EPOCHS * NUM_BATCHES
-USE_ADAM = True
+USE_ADAM = False
 ADAM_LEARN_RATE = 0.005
-SGD_LEARN_RATE = 0.01
+SGD_LEARN_RATE = 0.005
 LOC_STEP_SIZE = 100
+USE_SAVED_TRAIN_DATA = False
 
 PRIVACY_PARAMS = MusCATPrivacy(num_batches=NUM_BATCHES, num_epochs=NUM_ITERS/NUM_BATCHES)
 
 # TRAIN_ROUNDS = workflow.PLAIN_TRAIN_ROUNDS(NUM_ITERS)
 # TEST_ROUNDS = workflow.PLAIN_TEST_ROUNDS
 
-# TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
-TRAIN_ROUNDS = workflow.EMPTY
+TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
+# TRAIN_ROUNDS = workflow.EMPTY
 TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 
 # TRAIN_ROUNDS = workflow.DEBUG_ROUNDS
@@ -382,7 +383,7 @@ class TrainClient(fl.client.NumPyClient):
 
         elif round_prot in [prot.FEAT, prot.FEAT_SECURE]:
 
-            if False: # USE SAVED DATA
+            if not USE_SAVED_TRAIN_DATA: # For debugging
 
                 logger.info("Load training labels")
 
