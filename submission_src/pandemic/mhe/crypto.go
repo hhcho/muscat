@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"sort"
@@ -16,19 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"go.dedis.ch/onet/v3/log"
-
 	"github.com/ldsec/lattigo/v2/ckks"
 	"github.com/ldsec/lattigo/v2/ring"
 )
-
-type IntervalApprox struct {
-	A          float64
-	B          float64
-	Degree     int
-	Iter       int
-	InverseNew bool
-}
 
 // CipherVector is a slice of Ciphertexts
 type CipherVector []*ckks.Ciphertext
@@ -84,6 +75,7 @@ type RotationType struct {
 // #------------ INIT ------------------#
 // #------------------------------------#
 
+// NewCryptoParamsForNetwork generates the cryptographic parameters and keys for all nodes (server and all clients)
 func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim int, numThreads int) []*CryptoParams {
 
 	kgen := ckks.NewKeyGenerator(params)
@@ -115,7 +107,7 @@ func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim i
 	return ret
 }
 
-// NewCryptoParams initializes CryptoParams with the given values
+// NewLocalCryptoParams initializes CryptoParams with the given values
 func NewLocalCryptoParams(params *ckks.Parameters, sk, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, numThreads int) *CryptoParams {
 
 	evaluators := make(chan ckks.Evaluator, numThreads)
@@ -163,6 +155,7 @@ func NewLocalCryptoParams(params *ckks.Parameters, sk, aggregateSk *ckks.SecretK
 	}
 }
 
+// AppendFullFile writes in a file for which the writer is already initialized
 func AppendFullFile(writer *bufio.Writer, buf []byte) error {
 	sbuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(sbuf, uint64(len(buf)))
@@ -174,6 +167,7 @@ func AppendFullFile(writer *bufio.Writer, buf []byte) error {
 	return nil
 }
 
+// WriteFullFile creates a new file and writes in it
 func WriteFullFile(filename string, buf []byte) error {
 	file, err := os.Create(filename)
 	defer file.Close()
@@ -191,6 +185,7 @@ func WriteFullFile(filename string, buf []byte) error {
 	return err
 }
 
+// LoadFullFile opens and reads the content of a file
 func LoadFullFile(filename string) ([]byte, error) {
 	file, err := os.Open(filename)
 	defer file.Close()
@@ -210,174 +205,76 @@ func LoadFullFile(filename string) ([]byte, error) {
 	return sdata, err
 }
 
+// SaveCryptoParamsAndRotKeys saves the cryptographic parameters in files
 func SaveCryptoParamsAndRotKeys(pid int, path string, sk *ckks.SecretKey, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, rotks *ckks.RotationKeySet) {
 
 	skBytes, err := sk.MarshalBinary()
 	if err != nil {
-		log.Error("error marshalling secret key ", err)
+		log.Println("Error marshalling secret key ", err)
 	}
 
 	err = WriteFullFile(path+"/sk.bin", skBytes)
 	if err != nil {
-		log.Error("error writing sk key ", err)
+		log.Println("Error writing sk key ", err)
 	}
 
 	aggregateSkBytes, err := aggregateSk.MarshalBinary()
 	if err != nil {
-		log.Error("error marshalling secret key ", err)
+		log.Println("Error marshalling secret key ", err)
 	}
 
 	err = WriteFullFile(path+"/aggregateSk.bin", aggregateSkBytes)
 	if err != nil {
-		log.Error("error writing aggregateSk key ", err)
+		log.Println("Error writing aggregateSk key ", err)
 	}
 
 	pkBytes, err := pk.MarshalBinary()
 	if err != nil {
-		log.Error("error marshalling public key ", err)
+		log.Println("Error marshalling public key ", err)
 	}
 
 	err = WriteFullFile(path+"/pk.bin", pkBytes)
 	if err != nil {
-		log.Error("error writing pk key ", err)
+		log.Println("Error writing pk key ", err)
 	}
 
 	rlkBytes, err := rlk.MarshalBinary()
 	if err != nil {
-		log.Error("error marshalling relinearization key ", err)
+		log.Println("Error marshalling relinearization key ", err)
 	}
 
 	err = WriteFullFile(path+"/rlk.bin", rlkBytes)
 	if err != nil {
-		log.Error("error writing rlk key ", err)
+		log.Println("Error writing rlk key ", err)
 	}
 
 	if pid > 0 {
 		rotKsBytes, err := rotks.MarshalBinary()
 		if err != nil {
-			log.Error("error marshalling rotation keys ", err)
+			log.Println("Error marshalling rotation keys ", err)
 		}
 
 		err = WriteFullFile(path+"/rotks.bin", rotKsBytes)
 		if err != nil {
-			log.Error("error writing rotks key ", err)
+			log.Println("Error writing rotks key ", err)
 		}
 	}
 }
 
-func NewCryptoParamsFromDisk(isServer bool, pid int, numThreads int) *CryptoParams {
-	// Read back the keys
-	rlk := new(ckks.RelinearizationKey)
-	rlkBytes, err := LoadFullFile(strconv.Itoa(pid) + "_rlk.bin")
-	if err != nil {
-		log.Error("error reading relinearization key ", err)
-	}
-	rlk.UnmarshalBinary(rlkBytes)
-
-	pk := new(ckks.PublicKey)
-	pkBytes, err := LoadFullFile(strconv.Itoa(pid) + "_pk.bin")
-	if err != nil {
-		log.Error("error reading public key ", err)
-	}
-	pk.UnmarshalBinary(pkBytes)
-
-	sk := new(ckks.SecretKey)
-	if !isServer {
-		skBytes, err := LoadFullFile(strconv.Itoa(pid) + "_sk.bin")
-		if err != nil {
-			log.Error("error reading secret key ", err)
-		}
-		sk.UnmarshalBinary(skBytes)
-	}
-
-	aggregateSk := new(ckks.SecretKey)
-	if !isServer {
-		aggregateSkBytes, err := LoadFullFile(strconv.Itoa(pid) + "_aggregateSk.bin")
-		if err != nil {
-			log.Error("error reading secret key ", err)
-		}
-		aggregateSk.UnmarshalBinary(aggregateSkBytes)
-	}
-
-	rotks := new(ckks.RotationKeySet)
-	if pid > 0 {
-		rotKsBytes, err := LoadFullFile(strconv.Itoa(pid) + "_rotks.bin")
-		if err != nil {
-			log.Error("error reading rotation keys ", err)
-		}
-		rotks.UnmarshalBinary(rotKsBytes)
-	}
-
-	params := ckks.DefaultParams[ckks.PN14QP438]
-
-	evaluators := make(chan ckks.Evaluator, numThreads)
-	for i := 0; i < numThreads; i++ {
-		evalKey := ckks.EvaluationKey{
-			Rlk:  rlk,
-			Rtks: rotks,
-		}
-		evaluators <- ckks.NewEvaluator(params, evalKey)
-	}
-
-	encoders := make(chan ckks.Encoder, numThreads)
-	var wg sync.WaitGroup
-	for i := 0; i < numThreads; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			encoders <- ckks.NewEncoderBig(params, 256)
-		}()
-	}
-	wg.Wait()
-
-	encryptors := make(chan ckks.Encryptor, numThreads)
-	for i := 0; i < numThreads; i++ {
-		encryptors <- ckks.NewEncryptorFromPk(params, pk)
-	}
-
-	decryptors := make(chan ckks.Decryptor, numThreads)
-	masterDecryptors := make(chan ckks.Decryptor, numThreads)
-	if !isServer {
-		for i := 0; i < numThreads; i++ {
-			decryptors <- ckks.NewDecryptor(params, sk)
-		}
-		for i := 0; i < numThreads; i++ {
-			masterDecryptors <- ckks.NewDecryptor(params, aggregateSk)
-		}
-	}
-
-	return &CryptoParams{
-		Params:      params,
-		Sk:          sk,
-		AggregateSk: aggregateSk,
-		Pk:          pk,
-		Rlk:         rlk,
-
-		encoders:         encoders,
-		encryptors:       encryptors,
-		decryptors:       decryptors,
-		masterDecryptors: masterDecryptors,
-		evaluators:       evaluators,
-
-		numThreads: numThreads,
-		prec:       256,
-		RotKs:      rotks,
-	}
-}
-
+// NewCryptoParamsFromDiskPath initiates the cryptographic parameters and primitives from files
 func NewCryptoParamsFromDiskPath(isServer bool, pid_path string, numThreads int) *CryptoParams {
 	// Read back the keys
 	rlk := new(ckks.RelinearizationKey)
 	rlkBytes, err := LoadFullFile(pid_path + "/rlk.bin")
 	if err != nil {
-		log.Error("error reading relinearization key ", err)
+		log.Println("Error reading relinearization key ", err)
 	}
 	rlk.UnmarshalBinary(rlkBytes)
 
 	pk := new(ckks.PublicKey)
 	pkBytes, err := LoadFullFile(pid_path + "/pk.bin")
 	if err != nil {
-		log.Error("error reading public key ", err)
+		log.Println("Error reading public key ", err)
 	}
 	pk.UnmarshalBinary(pkBytes)
 
@@ -385,7 +282,7 @@ func NewCryptoParamsFromDiskPath(isServer bool, pid_path string, numThreads int)
 	if !isServer {
 		skBytes, err := LoadFullFile(pid_path + "/sk.bin")
 		if err != nil {
-			log.Error("error reading secret key ", err)
+			log.Println("Error reading secret key ", err)
 		}
 		sk.UnmarshalBinary(skBytes)
 	}
@@ -393,7 +290,7 @@ func NewCryptoParamsFromDiskPath(isServer bool, pid_path string, numThreads int)
 	aggregateSk := new(ckks.SecretKey)
 	aggregateSkBytes, err := LoadFullFile(pid_path + "/aggregateSk.bin")
 	if err != nil {
-		log.Error("error reading secret key ", err)
+		log.Println("Error reading secret key ", err)
 	}
 	aggregateSk.UnmarshalBinary(aggregateSkBytes)
 
@@ -401,7 +298,7 @@ func NewCryptoParamsFromDiskPath(isServer bool, pid_path string, numThreads int)
 	if !isServer {
 		rotKsBytes, err := LoadFullFile(pid_path + "/rotks.bin")
 		if err != nil {
-			log.Error("error reading rotation keys ", err)
+			log.Println("Error reading rotation keys ", err)
 		}
 		rotks.UnmarshalBinary(rotKsBytes)
 	}
@@ -416,7 +313,6 @@ func NewCryptoParamsFromDiskPath(isServer bool, pid_path string, numThreads int)
 		}
 		evaluators <- ckks.NewEvaluator(params, evalKey)
 	}
-	log.LLvl1("created evaluators")
 
 	encoders := make(chan ckks.Encoder, numThreads)
 	var wg sync.WaitGroup
@@ -522,6 +418,7 @@ func (cp *CryptoParams) SetDecryptors(params *ckks.Parameters, sk *ckks.SecretKe
 	cp.decryptors = decryptors
 }
 
+// SetEvaluators sets the decryptors in the CryptoParams object
 func (cp *CryptoParams) SetEvaluators(params *ckks.Parameters, rlk *ckks.RelinearizationKey, rtks *ckks.RotationKeySet) {
 	evaluators := make(chan ckks.Evaluator, cp.numThreads)
 	for i := 0; i < cp.numThreads; i++ {
@@ -567,7 +464,7 @@ func (cp *CryptoParams) SetRotKeys(nbrRot []RotationType) []int {
 	return ks
 }
 
-// Generate rotKeys for power of two shifts up to # of slots
+// GenerateRotKeys generates rotKeys for power of two shifts up to # of slots
 // and for every shift up to smallDim
 func GenerateRotKeys(slots int, smallDim int, babyFlag bool) []RotationType {
 	rotations := make([]RotationType, 0)
@@ -615,6 +512,7 @@ func GenerateRotKeys(slots int, smallDim int, babyFlag bool) []RotationType {
 	return rotations
 }
 
+// GetSlots gets the prec parameters value
 func (cp *CryptoParams) GetPrec() uint {
 	return cp.prec
 }
@@ -624,7 +522,7 @@ func (cp *CryptoParams) GetSlots() int {
 	return cp.Params.Slots()
 }
 
-// WithEncoder run the given function with an encoder
+// WithEncoder runs the given function with an encoder
 func (cp *CryptoParams) WithEncoder(act func(ckks.Encoder) error) error {
 	encoder := <-cp.encoders
 	err := act(encoder)
@@ -632,7 +530,7 @@ func (cp *CryptoParams) WithEncoder(act func(ckks.Encoder) error) error {
 	return err
 }
 
-// WithEncryptor run the given function with an encryptor
+// WithEncryptor runs the given function with an encryptor
 func (cp *CryptoParams) WithEncryptor(act func(ckks.Encryptor) error) error {
 	encryptor := <-cp.encryptors
 	err := act(encryptor)
@@ -640,7 +538,7 @@ func (cp *CryptoParams) WithEncryptor(act func(ckks.Encryptor) error) error {
 	return err
 }
 
-// WithDecryptor run the given function with a decryptor
+// WithDecryptor runs the given function with a decryptor
 func (cp *CryptoParams) WithDecryptor(act func(act ckks.Decryptor) error) error {
 	decryptor := <-cp.decryptors
 	err := act(decryptor)
@@ -648,7 +546,7 @@ func (cp *CryptoParams) WithDecryptor(act func(act ckks.Decryptor) error) error 
 	return err
 }
 
-// WithDecryptor run the given function with a decryptor
+// WithMasterDecryptor runs the given function with a decryptor
 func (cp *CryptoParams) WithMasterDecryptor(act func(act ckks.Decryptor) error) error {
 	masterDecryptor := <-cp.masterDecryptors
 	err := act(masterDecryptor)
@@ -656,7 +554,7 @@ func (cp *CryptoParams) WithMasterDecryptor(act func(act ckks.Decryptor) error) 
 	return err
 }
 
-// WithEvaluator run the given function with an evaluator
+// WithEvaluator runs the given function with an evaluator
 func (cp *CryptoParams) WithEvaluator(act func(ckks.Evaluator) error) error {
 	eval := <-cp.evaluators
 	err := act(eval)
@@ -870,6 +768,7 @@ func DecodeFloatVector(cryptoParams *CryptoParams, fEncoded PlainVector) []float
 // #------------ MARSHALL --------------#
 // #------------------------------------#
 
+// MarshalBinary for CipherMatrix
 func (cm *CipherMatrix) MarshalBinary() ([]byte, [][]int, error) {
 	b := make([]byte, 0)
 	ctSizes := make([][]int, len(*cm))
@@ -886,6 +785,7 @@ func (cm *CipherMatrix) MarshalBinary() ([]byte, [][]int, error) {
 
 }
 
+// UnmarshalBinary for CipherMatrix
 func (cm *CipherMatrix) UnmarshalBinary(cryptoParams *CryptoParams, f []byte, ctSizes [][]int) error {
 	*cm = make([]CipherVector, len(ctSizes))
 
@@ -908,6 +808,7 @@ func (cm *CipherMatrix) UnmarshalBinary(cryptoParams *CryptoParams, f []byte, ct
 	return nil
 }
 
+// MarshalBinary for ciphervector
 func (cv *CipherVector) MarshalBinary() ([]byte, []int, error) {
 	data := make([]byte, 0)
 	ctSizes := make([]int, 0)
@@ -960,7 +861,7 @@ func CopyEncryptedVector(src CipherVector) CipherVector {
 	dest := make(CipherVector, len(src))
 	for i := 0; i < len(src); i++ {
 		if src[i] == nil {
-			log.LLvl1(time.Now().Format(time.RFC3339), "nil pointer", i)
+			log.Println(time.Now().Format(time.RFC3339), "nil pointer", i)
 		}
 		dest[i] = (*src[i]).CopyNew().Ciphertext()
 	}
@@ -989,18 +890,18 @@ func (cp *CryptoParams) MarshalBinary() ([]byte, error) {
 	encoder := gob.NewEncoder(&ret)
 
 	if cp.Params == nil {
-		log.LLvl1(time.Now().Format(time.RFC3339), "encoding params is nil")
+		log.Println(time.Now().Format(time.RFC3339), "encoding params is nil")
 
 	} else if cp.Sk == nil {
-		log.LLvl1(time.Now().Format(time.RFC3339), "encoding Sk is nil")
+		log.Println(time.Now().Format(time.RFC3339), "encoding Sk is nil")
 
 	} else if cp.AggregateSk == nil {
-		log.LLvl1(time.Now().Format(time.RFC3339), "encoding aggregate sk is nil")
+		log.Println(time.Now().Format(time.RFC3339), "encoding aggregate sk is nil")
 
 	} else if cp.Rlk == nil {
-		log.LLvl1(time.Now().Format(time.RFC3339), "encoding Rlk is nil")
+		log.Println(time.Now().Format(time.RFC3339), "encoding Rlk is nil")
 	} else if cp.RotKs == nil {
-		log.LLvl1(time.Now().Format(time.RFC3339), "encoding Rotks are nil")
+		log.Println(time.Now().Format(time.RFC3339), "encoding Rotks are nil")
 	}
 
 	err := encoder.Encode(cryptoParamsMarshalable{
@@ -1018,6 +919,7 @@ func (cp *CryptoParams) MarshalBinary() ([]byte, error) {
 	return ret.Bytes(), nil
 }
 
+// UnmarshalBinary for minimal cryptoParams-keys + params
 func (cp *CryptoParams) UnmarshalBinary(data []byte) error {
 	decoder := gob.NewDecoder(bytes.NewBuffer(data))
 
