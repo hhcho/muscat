@@ -20,7 +20,9 @@ import itertools
 
 from .muscat_model import MusCATModel
 from .muscat_workflow import prot, workflow
+from .muscat_privacy_config import MusCATPrivacy
 
+# Algorithm parameters
 NUM_DAYS_FOR_PRED = 2
 IMPUTE = True
 NEG_TO_POS_RATIO = 3
@@ -30,14 +32,16 @@ USE_ADAM = True
 ADAM_LEARN_RATE = 0.005
 SGD_LEARN_RATE = 0.01
 
+PRIVACY_PARAMS = MusCATPrivacy()
+
 # TRAIN_ROUNDS = workflow.PLAIN_TRAIN_ROUNDS(NUM_ITERS)
 # TEST_ROUNDS = workflow.PLAIN_TEST_ROUNDS
 
-# TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
-# TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
+TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
+TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 
-TRAIN_ROUNDS = workflow.DEBUG_ROUNDS
-TEST_ROUNDS = workflow.EMPTY
+# TRAIN_ROUNDS = workflow.DEBUG_ROUNDS
+# TEST_ROUNDS = workflow.EMPTY
 
 def run(*args: str):
     """ Runs Go subprocess with specified args """
@@ -214,11 +218,6 @@ class TrainClient(fl.client.NumPyClient):
     disease_outcome_data_path: Path
     client_dir: Path
 
-    def __post_init__(self):
-        """ Start Go client process for processing later """
-        # self.num_examples = pd.read_csv(self.disease_outcome_data_path).shape[0]
-        self.num_examples = 1 # TODO: replace with real info
-
     # TrainClient
     def fit(
         self, parameters: List[np.ndarray], config: dict
@@ -276,13 +275,8 @@ class TrainClient(fl.client.NumPyClient):
 
             logger.info("Compute local disease progression stats")
 
-            model = MusCATModel()
+            model = MusCATModel(PRIVACY_PARAMS)
             duration_cnt = model.fit_disease_progression(Ytrain)
-
-            new_vec = np.zeros(10) # Max duration of 10 days
-            max_ind = min(len(duration_cnt), len(new_vec))
-            new_vec[:max_ind] = duration_cnt[:max_ind]
-            duration_cnt = new_vec
 
             logger.info("Compute local symptom development stats")
 
@@ -382,7 +376,7 @@ class TrainClient(fl.client.NumPyClient):
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
             popnet = pd.read_csv(self.population_network_data_path)
 
-            model = MusCATModel()
+            model = MusCATModel(PRIVACY_PARAMS)
 
             logger.info("Fit disease model using aggregate statistics")
 
@@ -446,7 +440,7 @@ class TrainClient(fl.client.NumPyClient):
             
             logger.info("Load model")
 
-            model = MusCATModel()
+            model = MusCATModel(PRIVACY_PARAMS)
             model.load(self.client_dir, is_fed=True)
             
             if round_prot in [prot.ITER_FIRST, prot.ITER_FIRST_SECURE]:
@@ -1130,7 +1124,7 @@ class TestClient(fl.client.NumPyClient):
 
             logger.info("Load model")
 
-            model = MusCATModel()
+            model = MusCATModel(PRIVACY_PARAMS)
             model.load(self.client_dir, is_fed=True)
 
             logger.info("Setup local variables for featurization")
@@ -1221,7 +1215,7 @@ class TestClient(fl.client.NumPyClient):
 
         logger.info("Load model")
 
-        model = MusCATModel()
+        model = MusCATModel(PRIVACY_PARAMS)
         model.load(self.client_dir, is_fed=True)
 
         logger.info("Load test features and data")
