@@ -9,9 +9,10 @@ import (
 	"unsafe"
 
 	"github.com/ldsec/lattigo/v2/ckks"
-	"go.dedis.ch/onet/v3/log"
+	"log"
 )
 
+// Max computes the maximum values between two integers
 func Max(x, y int) int {
 	if x <= y {
 		return y
@@ -19,6 +20,7 @@ func Max(x, y int) int {
 	return x
 }
 
+// CAdd additions two Ciphervectors
 func CAdd(cryptoParams *CryptoParams, X CipherVector, Y CipherVector) CipherVector {
 	res := make(CipherVector, len(X)) //equal num of ciphertexts
 	cryptoParams.WithEvaluator(func(eval ckks.Evaluator) error {
@@ -31,7 +33,7 @@ func CAdd(cryptoParams *CryptoParams, X CipherVector, Y CipherVector) CipherVect
 	return res
 }
 
-// MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
+// MarshalCipherMatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
 func MarshalCipherMatrix(cm CipherMatrix) ([]byte, []byte) {
 	cmBytes, ctSizes, err := cm.MarshalBinary()
 	if err != nil {
@@ -55,7 +57,7 @@ func MarshalCipherMatrix(cm CipherMatrix) ([]byte, []byte) {
 
 }
 
-// MarshalCiphermatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
+// UnmarshalCipherMatrix returns byte array corresponding to ciphertext sizes (int array) and byte array corresponding to marshaling
 func UnmarshalCipherMatrix(cryptoParams *CryptoParams, r, c int, sbytes, ctbytes []byte) CipherMatrix {
 	intsize := uint64(8)
 	offset := uint64(0)
@@ -79,6 +81,7 @@ func UnmarshalCipherMatrix(cryptoParams *CryptoParams, r, c int, sbytes, ctbytes
 	return cm
 }
 
+// SaveCipherMatrixToFile saves a Ciphermatrix to a file
 func SaveCipherMatrixToFile(cps *CryptoParams, cm CipherMatrix, filename string) {
 	file, err := os.Create(filename)
 	defer file.Close()
@@ -95,7 +98,7 @@ func SaveCipherMatrixToFile(cps *CryptoParams, cm CipherMatrix, filename string)
 	binary.LittleEndian.PutUint32(nrbuf, uint32(len(cm)))
 	binary.LittleEndian.PutUint32(ncbuf, uint32(len(cm[0])))
 
-	sbuf := make([]byte, 8) //TODO: see if 4 bytes is enough
+	sbuf := make([]byte, 8)
 	cmbuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(sbuf, uint64(len(sbytes)))
 	binary.LittleEndian.PutUint64(cmbuf, uint64(len(cmbytes)))
@@ -110,6 +113,7 @@ func SaveCipherMatrixToFile(cps *CryptoParams, cm CipherMatrix, filename string)
 	writer.Flush()
 }
 
+// LoadCipherMatrixFromFile reads a ciphermatrix from a file
 func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) (CipherMatrix, error) {
 	file, err := os.Open(filename)
 	defer file.Close()
@@ -140,6 +144,7 @@ func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) (CipherMatrix,
 	return UnmarshalCipherMatrix(cps, nrows, numCtxPerRow, sdata, cdata), err
 }
 
+// SaveFloatVectorToFileBinary saves a vector of float values to a binary file
 func SaveFloatVectorToFileBinary(filename string, x []float64) {
 	file, err := os.Create(filename)
 	defer file.Close()
@@ -156,6 +161,7 @@ func SaveFloatVectorToFileBinary(filename string, x []float64) {
 	writer.Flush()
 }
 
+// SaveFloatVectorToFile saves a vector of float values to a file
 func SaveFloatVectorToFile(filename string, x []float64) {
 	file, err := os.Create(filename)
 	defer file.Close()
@@ -172,6 +178,7 @@ func SaveFloatVectorToFile(filename string, x []float64) {
 	writer.Flush()
 }
 
+// LoadFloatVectorFromFile reads a vector of float values from a file
 func LoadFloatVectorFromFile(filename string, n int) []float64 {
 	file, err := os.Open(filename)
 	defer file.Close()

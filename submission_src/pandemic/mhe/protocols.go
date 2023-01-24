@@ -10,9 +10,10 @@ import (
 	"github.com/ldsec/lattigo/v2/dckks"
 	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/utils"
-	"go.dedis.ch/onet/v3/log"
+	"log"
 )
 
+// LoadSharedKeyAndRefresh loads the current state of the shared key and refreshes the key
 func LoadSharedKeyAndRefresh(pidPath string) []byte {
 	keyPath := pidPath + "/shared_key.bin"
 
@@ -29,6 +30,7 @@ func LoadSharedKeyAndRefresh(pidPath string) []byte {
 	return buf
 }
 
+// CollectiveDecryptClientSend performs the initial step of a collective decryption for a client
 func CollectiveDecryptClientSend(pidPath, vectorToDecryptFile, outFile, keyFile, dimFile string) {
 	cps := NewCryptoParamsFromDiskPath(false, pidPath, 1)
 	parameters := cps.Params
@@ -49,7 +51,7 @@ func CollectiveDecryptClientSend(pidPath, vectorToDecryptFile, outFile, keyFile,
 	flag, _ := LoadFullFile(pidPath + "/mask.bin")
 	toMask := int(flag[0]) > 0
 
-	log.LLvl1("toMask:", toMask)
+	log.Println("toMask:", toMask)
 
 	// Sample two shared keys
 	decToken := LoadSharedKeyAndRefresh(pidPath)
@@ -100,6 +102,7 @@ func CollectiveDecryptClientSend(pidPath, vectorToDecryptFile, outFile, keyFile,
 	SaveFloatVectorToFile(dimFile, []float64{float64(nr), float64(nc)})
 }
 
+// CollectiveDecryptServer performs the server operation for a collective decryption
 func CollectiveDecryptServer(pidPath string, nr, nc int, outFile string, inFiles []string) {
 	cps := NewCryptoParamsFromDiskPath(true, pidPath, 1)
 
@@ -166,6 +169,7 @@ func CollectiveDecryptServer(pidPath string, nr, nc int, outFile string, inFiles
 	}
 }
 
+// CollectiveDecryptClientReceive performs the final step of collective decryption at client
 func CollectiveDecryptClientReceive(pidPath string, vectorToDecryptFile, server_polysPath, keyFile, outFile string) {
 	cps := NewCryptoParamsFromDiskPath(false, pidPath, 1)
 
