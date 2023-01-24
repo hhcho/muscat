@@ -46,10 +46,10 @@ TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 # TRAIN_ROUNDS = workflow.DEBUG_ROUNDS
 # TEST_ROUNDS = workflow.EMPTY
 
-def run(*args: str):
+def run(*args: Union[str, Path]):
     """ Runs Go subprocess with specified args """
     exec_path = os.path.join(os.path.dirname(__file__), 'petchal')
-    subprocess.run([exec_path, *args], check=True)
+    subprocess.run([exec_path, *[str(arg) for arg in args]], check=True)
 
 # With original ciphertext data to decrypt in inFile and intermediate
 # aggregated data sent from server in enc, finish collective decryption
