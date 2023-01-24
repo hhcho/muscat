@@ -54,11 +54,13 @@ and to (re)generate `submission.zip`:
 
   - one can avoid data duplication by creating hard links to the associated files, e.g.
     ```sh
-    ls /path/to/downloaded/data/*.{gz,csv} | while read f
-      sudo ln -f "$f" "data/pandemic/centralized/test/$(basename $f)"
-      sudo ln -f "$f" "data/pandemic/centralized/train/$(basename $f)"
-      sudo ln -f "$f" "data/pandemic/federated/test/$(basename $f)"
-      sudo ln -f "$f" "data/pandemic/federated/train/$(basename $f)"
+    ls /path/to/downloaded/data/*.{gz,csv} | while read f ; do
+      for p in "centralized/test" "centralized/train" \
+            "scenario01/test/client01" "scenario01/train/client01" \
+            "scenario01/test/client02" "scenario01/train/client02" \
+            "scenario01/test/client03" "scenario01/train/client03" ; do
+        sudo ln -f "$f" "data/pandemic/$p/$(basename $f)"
+      done
     done
     ```
 
@@ -77,7 +79,9 @@ and to (re)generate `submission.zip`:
   ( cd "submission_src/pandemic" &&  go build )
 
   # Alternatively, (re)generate the x86_64/amd64 binary if you're on macOS (with or without Apple Silicon)
-  docker run --rm -t --platform linux/amd64 -v "$PWD/submission_src/pandemic:/work" -w /work golang:1.19 go build
+  docker run --rm -t --platform linux/amd64 \
+    -v "$PWD/submission_src/pandemic:/work" \
+    -w /work golang:1.19 go build
 
   # Remove any previous submission archive
   rm -f submission/submission.zip
