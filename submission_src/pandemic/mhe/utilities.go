@@ -118,7 +118,7 @@ func LoadCipherMatrixFromFile(cps *CryptoParams, filename string) (CipherMatrix,
 	file, err := os.Open(filename)
 	defer file.Close()
 	if err != nil {
-		log.Error(err)
+		log.Println(err)
 	}
 
 	reader := bufio.NewReader(file)
