@@ -91,7 +91,10 @@ func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim i
 		rq.Add(aggregateSk.Value, skList[i].Value, aggregateSk.Value)
 	}
 	pk := kgen.GenPublicKey(aggregateSk)
-	rlk := kgen.GenRelinearizationKey(aggregateSk)
+
+	// relinearization (rlk) and rotation keys (rotks) are not set as we are not using them
+	// we keep them here for the development of other workflows in our modular computation framework
+	rlk := new(ckks.RelinearizationKey)
 
 	ret := make([]*CryptoParams, nbrNodes+1)
 
@@ -110,6 +113,7 @@ func NewCryptoParamsForNetwork(params *ckks.Parameters, nbrNodes int, smallDim i
 // NewLocalCryptoParams initializes CryptoParams with the given values
 func NewLocalCryptoParams(params *ckks.Parameters, sk, aggregateSk *ckks.SecretKey, pk *ckks.PublicKey, rlk *ckks.RelinearizationKey, numThreads int) *CryptoParams {
 
+	// numThreads is set to 1 by default, keeping it here for modularity
 	evaluators := make(chan ckks.Evaluator, numThreads)
 	for i := 0; i < numThreads; i++ {
 		evalKey := ckks.EvaluationKey{
@@ -238,16 +242,6 @@ func SaveCryptoParamsAndRotKeys(pid int, path string, sk *ckks.SecretKey, aggreg
 		log.Println("Error writing pk key ", err)
 	}
 
-	rlkBytes, err := rlk.MarshalBinary()
-	if err != nil {
-		log.Println("Error marshalling relinearization key ", err)
-	}
-
-	err = WriteFullFile(path+"/rlk.bin", rlkBytes)
-	if err != nil {
-		log.Println("Error writing rlk key ", err)
-	}
-
 	if pid > 0 {
 		rotKsBytes, err := rotks.MarshalBinary()
 		if err != nil {
@@ -264,12 +258,8 @@ func SaveCryptoParamsAndRotKeys(pid int, path string, sk *ckks.SecretKey, aggreg
 // NewCryptoParamsFromDiskPath initiates the cryptographic parameters and primitives from files
 func NewCryptoParamsFromDiskPath(isServer bool, pid_path string, numThreads int) *CryptoParams {
 	// Read back the keys
+
 	rlk := new(ckks.RelinearizationKey)
-	rlkBytes, err := LoadFullFile(pid_path + "/rlk.bin")
-	if err != nil {
-		log.Println("Error reading relinearization key ", err)
-	}
-	rlk.UnmarshalBinary(rlkBytes)
 
 	pk := new(ckks.PublicKey)
 	pkBytes, err := LoadFullFile(pid_path + "/pk.bin")
@@ -469,7 +459,6 @@ func (cp *CryptoParams) SetRotKeys(nbrRot []RotationType) []int {
 func GenerateRotKeys(slots int, smallDim int, babyFlag bool) []RotationType {
 	rotations := make([]RotationType, 0)
 
-	// TODO changed
 	l := smallDim
 	l = FindClosestPow2(l)
 

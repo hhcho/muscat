@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from .muscat_model import MusCATModel, GaussianMechNoise
 from .muscat_workflow import prot, workflow
-from .muscat_privacy_config import MusCATPrivacy
+from .muscat_privacy import MusCATPrivacy
 
 # Algorithm parameters
 NUM_DAYS_FOR_PRED = 2
@@ -48,10 +48,10 @@ TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 # TRAIN_ROUNDS = workflow.DEBUG_ROUNDS
 # TEST_ROUNDS = workflow.EMPTY
 
-def run(*args: str):
+def run(*args: Union[str, Path]):
     """ Runs Go subprocess with specified args """
     exec_path = os.path.join(os.path.dirname(__file__), 'petchal')
-    subprocess.run([exec_path, *args], check=True)
+    subprocess.run([exec_path, *[str(arg) for arg in args]], check=True)
 
 # With original ciphertext data to decrypt in inFile and intermediate
 # aggregated data sent from server in enc, finish collective decryption
@@ -298,10 +298,10 @@ class TrainClient(fl.client.NumPyClient):
             if priv:
                 eps, delta = priv.exposure_load_population
                 inf_max = priv.infection_duration_max / 3600
-        
+
                 logger.info(f"Add noise to population exposure for diff privacy: eps {eps} delta {delta}")
 
-                eloads_pop += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads_pop += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=np.sqrt(inf_max), shape=eloads_pop.shape)
 
             eloads_res = np.zeros((Ytrain.shape[1], max_res + 1), dtype=np.float32)
@@ -325,30 +325,30 @@ class TrainClient(fl.client.NumPyClient):
                     val = infected[pids] * le_res_act["duration"]/3600
                     if priv:
                         logger.info(f"Clamping location exposure duration (residence)")
-                        val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600) 
+                        val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600)
 
                     I = np.zeros(len(le_res_act), dtype=int)
                     J = le_res_act["lid"] - 1000000001
-                    
+
                     eloads_res[day,:] = coo_matrix((val, (I, J)), shape=(1, max_res + 1)).toarray()[0]
 
                     pids = np.array([id_map[v] for v in le_other_act["pid"]])
                     val = infected[pids] * le_other_act["duration"]/3600
                     if priv:
                         logger.info(f"Clamping location exposure duration (activity)")
-                        val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600) 
+                        val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600)
 
                     I = np.zeros(len(le_other_act), dtype=int)
                     J = le_other_act["lid"] - 1
-                    
+
                     eloads_actloc[day,:] = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
-                
+
                 logger.info(f"Saving cache file: {cacheFile}")
                 np.savez(cacheFile, eloads_res=eloads_res, eloads_actloc=eloads_actloc)
 
 
             logger.info("Exposure load computation finished")
-            
+
             logger.info("Downsample locations")
             eloads_res = eloads_res[:,::LOC_STEP_SIZE]
             eloads_actloc = eloads_actloc[:,::LOC_STEP_SIZE]
@@ -359,14 +359,14 @@ class TrainClient(fl.client.NumPyClient):
                 eps, delta = eps/2, delta/2 # Applied twice: residence and activity locations
                 val_max = priv.location_duration_max/3600
                 inf_max = priv.infection_duration_max/3600
-        
+
                 logger.info(f"Add noise to location exposure for diff privacy: eps {eps} delta {delta}")
 
-                eloads_res += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads_res += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*(24.0/val_max)),
                     shape=eloads_res.shape)
 
-                eloads_actloc += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads_actloc += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*(24.0/val_max)),
                     shape=eloads_actloc.shape)
 
@@ -395,7 +395,7 @@ class TrainClient(fl.client.NumPyClient):
                 if round_prot == prot.FEAT:
 
                     duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc = parameters
-                
+
                 elif round_prot == prot.FEAT_SECURE:
 
                     logger.info("Finish decryption of aggregate statistics")
@@ -415,7 +415,7 @@ class TrainClient(fl.client.NumPyClient):
                     duration_cnt, idx = unpack(vec, 10, idx)
 
                     logger.info(f"duration_cnt {duration_cnt}")
-                    
+
                     ret, idx = unpack(vec, 2, idx)
                     symptom_cnt, recov_cnt = ret
 
@@ -459,13 +459,13 @@ class TrainClient(fl.client.NumPyClient):
                 logger.info("Prepare local variables for featurization")
 
                 model.setup_features(person, actassign, popnet, id_map, self.client_dir)
-                
+
                 infected = (Ytrain == 1).transpose()
 
                 logger.info("Generate training features for each day and sample instances")
 
-                train_feat, train_label = model.get_train_feat_all_days(infected, Ytrain, 
-                    NUM_DAYS_FOR_PRED, IMPUTE, NEG_TO_POS_RATIO, 
+                train_feat, train_label = model.get_train_feat_all_days(infected, Ytrain,
+                    NUM_DAYS_FOR_PRED, IMPUTE, NEG_TO_POS_RATIO,
                     agg_data, id_map)
 
                 logger.info("Shuffle training data")
@@ -532,7 +532,7 @@ class TrainClient(fl.client.NumPyClient):
 
             model = MusCATModel(PRIVACY_PARAMS)
             model.load(self.client_dir, is_fed=True)
-            
+
             logger.info("Load training features")
 
             train_feat = np.load(self.client_dir / "train_feat.npy")
@@ -618,7 +618,7 @@ class TrainClient(fl.client.NumPyClient):
                 return [], 0, {}
 
             logger.info("Starting gradient computation")
-            
+
             logger.info("Standardize features")
 
             train_feat /= FEAT_SCALE
@@ -935,7 +935,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
         elif round_prot == prot.ITER_LAST:
             pass
 
-        elif round_prot in [prot.ITER_FIRST_SECURE, prot.ITER_SECURE, 
+        elif round_prot in [prot.ITER_FIRST_SECURE, prot.ITER_SECURE,
             prot.FEAT_SECURE, prot.LOCAL_STATS_SECURE, prot.TEST_AGG_1]:
 
             file_list = []
@@ -1168,7 +1168,7 @@ class TestClient(fl.client.NumPyClient):
             max_res, max_actloc = np.load(self.client_dir / "max_indices.npy")
 
             logger.info("Load data")
-            
+
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
 
@@ -1187,17 +1187,17 @@ class TestClient(fl.client.NumPyClient):
                                                            # features for this day are unused for training;
                                                            # sensitivity calculated jointly for all days
                 inf_max = priv.infection_duration_max / 3600
-        
+
                 logger.info(f"Add noise to population exposure for diff privacy: eps {eps} delta {delta}")
 
-                eloads_pop += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads_pop += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=np.sqrt(inf_max), shape=eloads_pop.shape)
 
             pids = np.array([id_map[v] for v in le_res_act["pid"]])
             val = infected[pids] * le_res_act["duration"]/3600
             if priv:
                 logger.info(f"Clamping location exposure duration (residence)")
-                val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600) 
+                val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600)
 
             I = np.zeros(len(le_res_act), dtype=int)
             J = le_res_act["lid"] - 1000000001
@@ -1208,7 +1208,7 @@ class TestClient(fl.client.NumPyClient):
             val = infected[pids] * le_other_act["duration"]/3600
             if priv:
                 logger.info(f"Clamping location exposure duration (activity)")
-                val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600) 
+                val = np.minimum(np.array(val), np.array(priv.location_duration_max)/3600)
 
             I = np.zeros(len(le_other_act), dtype=int)
             J = le_other_act["lid"] - 1
@@ -1217,7 +1217,7 @@ class TestClient(fl.client.NumPyClient):
 
             logger.info("Downsample locations")
             eloads_res = eloads_res[::LOC_STEP_SIZE]
-            eloads_actloc = eloads_actloc[::LOC_STEP_SIZE]            
+            eloads_actloc = eloads_actloc[::LOC_STEP_SIZE]
 
             # Differential privacy
             if priv:
@@ -1227,14 +1227,14 @@ class TestClient(fl.client.NumPyClient):
                 eps, delta = eps/2, delta/2 # Applied twice: residence and activity locations
                 val_max = priv.location_duration_max/3600
                 inf_max = priv.infection_duration_max/3600
-        
+
                 logger.info(f"Add noise to location exposure for diff privacy: eps {eps} delta {delta}")
 
-                eloads_res += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads_res += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*(24.0/val_max)),
                     shape=eloads_res.shape)
 
-                eloads_actloc += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads_actloc += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*(24.0/val_max)),
                     shape=eloads_actloc.shape)
 
@@ -1279,7 +1279,7 @@ class TestClient(fl.client.NumPyClient):
 
                 eloads_res = np.zeros((1, max_res + 1), dtype=np.float32)
                 eloads_actloc = np.zeros((1, max_actloc + 1), dtype=np.float32)
-                
+
                 eloads_res[0,::LOC_STEP_SIZE], idx = unpack(vec, (int(max_res / LOC_STEP_SIZE) + 1), idx)
                 eloads_actloc[0,::LOC_STEP_SIZE], idx = unpack(vec, (int(max_actloc / LOC_STEP_SIZE) + 1), idx)
 
@@ -1309,7 +1309,7 @@ class TestClient(fl.client.NumPyClient):
             if False and cacheFile.exists():
 
                 logger.info("Skipping: using cached test features")
-            
+
             else:
 
                 infected = (Ytrain == 1).transpose()
@@ -1324,7 +1324,7 @@ class TestClient(fl.client.NumPyClient):
                 logger.info("Save test features")
 
                 np.save(cacheFile, test_feat)
-        
+
         elif round_prot == prot.COLLECTIVE_DECRYPT:
 
             enc = parameters[0]
@@ -1393,8 +1393,8 @@ class TestClient(fl.client.NumPyClient):
         # Make predictions on the test split. Use model parameters from server.
         # set_model_parameters(self.model, parameters)
         # predictions = self.model.predict(self.disease_outcome_df)
-        
-        
+
+
         round_num = int(config['round'])
 
         logger.info(f">>>>> TestClient: evaluate, round {round_num}")
@@ -1422,7 +1422,7 @@ class TestClient(fl.client.NumPyClient):
 
         pred = (model.weights[0] + test_feat @ model.weights[1:]).ravel()
 
-        # Scaling needs to be consistent across units. Do not scale locally    
+        # Scaling needs to be consistent across units. Do not scale locally
         # scaler = MinMaxScaler()
         # scaler.fit(pred)
         # pred = scaler.transform(pred)
@@ -1446,7 +1446,7 @@ class TestClient(fl.client.NumPyClient):
 
         pred_df.loc[preds_format_df.pid].to_csv(self.preds_dest_path)
         logger.info(f"Client test predictions saved to disk for client {self.cid}.")
-        
+
         return 0.0, 0, {}
 
 
@@ -1565,7 +1565,7 @@ class TestStrategy(fl.server.strategy.Strategy):
                 fname = self.server_dir / f"input_{idx}.bin"
                 enc.tofile(fname)
                 file_list.append(fname)
-            
+
             outfile = self.server_dir / "output.bin"
 
             run("aggregate-cipher", self.server_dir, outfile, *file_list)
@@ -1577,7 +1577,7 @@ class TestStrategy(fl.server.strategy.Strategy):
             return params, {}
 
         elif round_prot == prot.COLLECTIVE_DECRYPT:
-            
+
             file_list = []
             for idx, res in enumerate(fit_res):
                 enc = res[0]
@@ -1610,9 +1610,9 @@ class TestStrategy(fl.server.strategy.Strategy):
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, EvaluateIns]]:
         """Run evaluate on all clients to make test predictions."""
-        
+
         logger.info(f">>>>> TestStrategy: configure_evaluate, round {server_round}")
-        
+
         evaluate_ins = EvaluateIns(parameters, {"round": server_round})
         clients = list(client_manager.all().values())
         return [(client, evaluate_ins) for client in clients]
@@ -1623,9 +1623,9 @@ class TestStrategy(fl.server.strategy.Strategy):
         failures: List[Union[Tuple[ClientProxy, EvaluateRes], BaseException]],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
         """Do nothing and return empty results. Not actually evaluating any metrics."""
-        
+
         logger.info(f">>>>> TestStrategy: aggregate_evaluate, round {server_round}")
-        
+
         return None, {}
 
     # Not used
