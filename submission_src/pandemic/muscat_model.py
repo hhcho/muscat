@@ -448,6 +448,23 @@ class MusCATModel:
         self.model = model
         self.scaler = scaler
 
+    def initial_weights(self, num_features=None):
+        # np.random.seed(0) # Deterministic seed so all clients have the same initial model
+        # stdv = 1. / np.sqrt(num_features)
+        # return np.random.uniform(low=-stdv, high=stdv, size=num_features+1)
+
+        # Prior knowledge
+        init_weights = np.array([ 0.42980912, -0.00924882,  0.00670033, -0.01610269, -0.03017593,
+        0.09858311,  0.04946187,  0.05403953,  0.04034745,  0.0151224 ,
+        0.01771312,  0.0054485 , -0.15104969, -0.01643871, -0.01045104,
+       -0.17034666, -0.01693403, -0.00821398, -0.08441824, -0.18401848,
+        0.12482014, -0.03288731,  0.00278582,  0.07604216,  0.0131966 ,
+        0.02062159,  0.0053063 ,  0.04018513, -0.00103119,  0.11839021,
+        0.44942504, -0.39994606,  0.2358387 ,  0.07346488,  0.22177164,
+       -0.37389484,  0.52086437,  0.4199095 , -0.10497533,  0.12064194,
+        0.04529913,  0.17248046, -0.02391332] + [0] * 100)
+        return np.array(init_weights[:num_features+1])
+
     def save(self, model_dir: Path, is_fed=False):
         if is_fed:
             params = {"delta_cumul":self.prob_delta_cumul.tolist(),
@@ -456,7 +473,10 @@ class MusCATModel:
                     "impute":self.impute,
                     "weights":self.weights.tolist(),
                     "center":self.center.tolist(),
-                    "scale":self.scale.tolist()}
+                    "scale":self.scale.tolist(),
+                    "adam_m":self.adam_m.tolist(),
+                    "adam_v":self.adam_v.tolist(),
+                    "adam_counter":self.adam_counter}
         else:
             torch.save(self.model, model_dir / "model.save")
             joblib.dump(self.scaler, model_dir / "scaler.save")
@@ -476,6 +496,10 @@ class MusCATModel:
             self.weights = np.array(params["weights"])
             self.center = np.array(params["center"])
             self.scale = np.array(params["scale"])
+            if "adam_m" in params:
+                self.adam_m = np.array(params["adam_m"])
+                self.adam_v = np.array(params["adam_v"])
+                self.adam_counter = params["adam_counter"]
         else:
             self.model = torch.load(model_dir / "model.save")
             self.scaler = joblib.load(model_dir / "scaler.save")
@@ -489,10 +513,15 @@ class MusCATModel:
 
         z = (self.weights[0] + feat @ self.weights[1:]).ravel()
 
-        dloss_dz = (1 - 2 / (1 - np.exp(-z)))
-        dloss_dz[label == 0] = 1
+        clamp_thres = -np.log(0.95)
+        clamp = z < clamp_thres
+        z[clamp] = clamp_thres
 
-        feat_with_intercept = np.hstack([np.ones(feat.shape[0])[:,np.newaxis], feat])
+        dloss_dz = 1 - (1 / (1 - np.exp(-z)))
+        dloss_dz[label == 0] = 1
+        dloss_dz[clamp] = 0
+
+        grad = np.hstack([dloss_dz.ravel()[:,np.newaxis], (dloss_dz.ravel()[:,np.newaxis] * feat)])
 
         if self.priv:
 
@@ -501,19 +530,19 @@ class MusCATModel:
 
             logger.info(f"Add noise to gradients for diff privacy: eps {eps} delta {delta}")
 
-            gradient = dloss_dz.ravel()[:,np.newaxis] * feat_with_intercept
-            gradient_norm = np.sqrt((gradient**2).sum(axis=1)).ravel()
+            gradient_norm = np.sqrt((grad ** 2).sum(axis=1)).ravel()
 
             scaling = np.minimum(1.0, norm_thres / gradient_norm)
 
-            gradient *= scaling[:,np.newaxis]
-            gradient_sum = gradient.sum(axis=0)
+            grad *= scaling[:,np.newaxis]
+
+            gradient_sum = grad.sum(axis=0)
 
             gradient_sum += GaussianMechNoise(eps=eps, delta=delta,
                 l2_sens=norm_thres, shape=gradient_sum.shape)
 
         else:
-            gradient_sum = dloss_dz @ feat_with_intercept
+            gradient_sum = grad.sum(axis=0)
 
         sample_count = len(z)
 

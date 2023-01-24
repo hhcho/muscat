@@ -28,10 +28,11 @@ NEG_TO_POS_RATIO = 3
 NUM_EPOCHS = 1
 NUM_BATCHES = 20
 NUM_ITERS = NUM_EPOCHS * NUM_BATCHES
-USE_ADAM = False
+USE_ADAM = True
 ADAM_LEARN_RATE = 0.005
 SGD_LEARN_RATE = 0.005
 LOC_STEP_SIZE = 100
+FEAT_SCALE = 1000
 USE_SAVED_TRAIN_DATA = False
 
 PRIVACY_PARAMS = MusCATPrivacy(num_batches=NUM_BATCHES, num_epochs=NUM_ITERS/NUM_BATCHES)
@@ -40,6 +41,7 @@ PRIVACY_PARAMS = MusCATPrivacy(num_batches=NUM_BATCHES, num_epochs=NUM_ITERS/NUM
 # TEST_ROUNDS = workflow.PLAIN_TEST_ROUNDS
 
 TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
+# TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS_CACHED_DATA(NUM_ITERS)
 # TRAIN_ROUNDS = workflow.EMPTY
 TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 
@@ -477,16 +479,6 @@ class TrainClient(fl.client.NumPyClient):
                 np.save(self.client_dir / "train_feat.npy", train_feat)
                 np.save(self.client_dir / "train_label.npy", train_label)
 
-                model.num_days_for_pred = NUM_DAYS_FOR_PRED
-                model.impute = IMPUTE
-                model.weights = np.zeros(1 + train_feat.shape[1])
-                model.center = np.zeros(train_feat.shape[1])
-                model.scale = np.zeros(train_feat.shape[1])
-
-                logger.info("Save initialized model")
-
-                model.save(self.client_dir, is_fed=True)
-
             else:
 
                 logger.info("Loading cached model and train features")
@@ -497,9 +489,25 @@ class TrainClient(fl.client.NumPyClient):
                 train_feat = np.load(self.client_dir / "train_feat.npy")
                 train_label = np.load(self.client_dir / "train_label.npy")
 
+            
+            logger.info("Initialize model parameters")
+
+            model.num_days_for_pred = NUM_DAYS_FOR_PRED
+            model.impute = IMPUTE
+            model.weights = model.initial_weights(train_feat.shape[1])
+            model.adam_m = np.zeros(train_feat.shape[1]+1)
+            model.adam_v = np.zeros(train_feat.shape[1]+1)
+            model.adam_counter = 0
+            model.center = np.zeros(train_feat.shape[1])
+            model.scale = np.ones(train_feat.shape[1])
+
+            logger.info("Save initialized model")
+
+            model.save(self.client_dir, is_fed=True)
 
             logger.info("Compute feature statistics")
 
+            train_feat /= FEAT_SCALE
             feat_sum = train_feat.sum(axis=0)
             feat_sqsum = (train_feat**2).sum(axis=0)
             feat_count = train_feat.shape[0]
@@ -546,14 +554,19 @@ class TrainClient(fl.client.NumPyClient):
                     enc = parameters[0]
                     vec = collective_decrypt_final_step(self.client_dir, enc)
 
-                    logger.info(repr(vec))
-
                     feat_sum = vec[:nfeat]
                     feat_sqsum = vec[nfeat:2*nfeat]
                     feat_count = vec[2*nfeat]
 
+                    logger.info(f"feat_sum: {feat_sum}")
+                    logger.info(f"feat_sqsum: {feat_sqsum}")
+                    logger.info(f"feat_count: {feat_count}")
+
                 model.center = feat_sum / feat_count
-                model.scale = np.sqrt((feat_sqsum - (feat_sum**2)) / feat_count)
+                model.scale = np.sqrt(np.maximum(1e-6, (feat_sqsum / feat_count) - ((feat_sum / feat_count)**2)))
+
+                logger.info(f"centers: {model.center}")
+                logger.info(f"scales: {model.scale}")
 
             else:
 
@@ -571,8 +584,27 @@ class TrainClient(fl.client.NumPyClient):
                     vec = collective_decrypt_final_step(self.client_dir, enc)
 
                     gradient_sum, sample_count = vec[:nfeat+1], vec[nfeat+1]
+                    
+                logger.info(f"grad: {gradient_sum}")
+                logger.info(f"sample_count: {sample_count}")
+                logger.info(f"prev weights: {model.weights}")
 
-                model.weights -= SGD_LEARN_RATE * (gradient_sum / sample_count)
+                grad = gradient_sum / sample_count
+
+                # ADAM update
+                beta1, beta2 = 0.9, 0.999
+
+                model.adam_m = beta1 * model.adam_m + (1 - beta1) * grad
+                model.adam_v = beta2 * model.adam_v + (1 - beta2) * (grad**2)
+                model.adam_counter += 1
+
+                m_hat = model.adam_m / (1 - beta1 ** model.adam_counter)
+                v_hat = model.adam_v / (1 - beta2 ** model.adam_counter)
+            
+                model.weights -= ADAM_LEARN_RATE * m_hat / (np.sqrt(v_hat) + 1e-8)
+                # model.weights -= SGD_LEARN_RATE * grad
+                
+                logger.info(f"new weights: {model.weights}")
 
             logger.info("Save model")
 
@@ -589,6 +621,7 @@ class TrainClient(fl.client.NumPyClient):
             
             logger.info("Standardize features")
 
+            train_feat /= FEAT_SCALE
             train_feat -= model.center[np.newaxis,:]
             train_feat /= model.scale[np.newaxis,:]
 
@@ -1273,13 +1306,17 @@ class TestClient(fl.client.NumPyClient):
             logger.info("Compute test features")
 
             cacheFile = self.client_dir / "test_feat.npy"
-            if cacheFile.exists():
+            if False and cacheFile.exists():
 
                 logger.info("Skipping: using cached test features")
             
             else:
 
                 infected = (Ytrain == 1).transpose()
+
+                # Non-private version for testing
+                # test_feat = model.get_test_feat(infected, Ytrain, model.num_days_for_pred,
+                #                                 model.impute, agg_data, id_map)
 
                 test_feat = model.get_test_feat(infected, Ytrain, model.num_days_for_pred,
                                                 model.impute, agg_data, id_map, priv)
@@ -1377,6 +1414,7 @@ class TestClient(fl.client.NumPyClient):
 
         logger.info("Standardize features")
 
+        test_feat /= FEAT_SCALE
         test_feat -= model.center[np.newaxis,:]
         test_feat /= model.scale[np.newaxis,:]
 

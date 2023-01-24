@@ -51,6 +51,18 @@ class workflow:
                 prot.COLLECTIVE_DECRYPT,
                 prot.ITER_LAST_SECURE]
 
+    # Secure training workflow, bootstrapping from saved training features
+    @staticmethod
+    def SECURE_TRAIN_ROUNDS_CACHED_DATA(num_iters: int):
+        return [None,
+                prot.FEAT_SECURE,
+                prot.COLLECTIVE_DECRYPT,
+                prot.ITER_FIRST_SECURE,
+                *([prot.COLLECTIVE_DECRYPT,
+                   prot.ITER_SECURE] * (num_iters - 2)),
+                prot.COLLECTIVE_DECRYPT,
+                prot.ITER_LAST_SECURE]
+
     # Plaintext training workflow
     @staticmethod
     def PLAIN_TRAIN_ROUNDS(num_iters: int):
