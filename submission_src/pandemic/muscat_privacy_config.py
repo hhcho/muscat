@@ -6,7 +6,7 @@ class MusCATPrivacy:
             raise Exception("Undefined privacy level. Must be 0, 1, or 2.")
 
         # For differential privacy
-        # (eps, delta) budget for each component 
+        # (eps, delta) budget for each component
         self.disease_progression = (0.1, 1e-7)
         self.symptom_development = (0.1, 1e-7),
         self.exposure_load_population = (0.1, 1e-7),

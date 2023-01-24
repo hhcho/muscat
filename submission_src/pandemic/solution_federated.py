@@ -1,3 +1,4 @@
+import itertools
 import os
 import subprocess
 from dataclasses import dataclass
@@ -5,22 +6,20 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import flwr as fl
-from flwr.common import (Code, EvaluateIns, EvaluateRes, FitIns, FitRes,
-                         Parameters, Scalar, Status)
+import numpy as np
+import pandas as pd
+from flwr.common import (EvaluateIns, EvaluateRes, FitIns, FitRes, Parameters,
+                         Scalar)
 from flwr.server import ClientManager
 from flwr.server.client_proxy import ClientProxy
 from loguru import logger
-
-import pandas as pd
-import numpy as np
 from scipy.sparse import coo_matrix
 from sklearn.preprocessing import MinMaxScaler
-from tqdm import tqdm 
-import itertools
+from tqdm import tqdm
 
 from .muscat_model import MusCATModel
-from .muscat_workflow import prot, workflow
 from .muscat_privacy_config import MusCATPrivacy
+from .muscat_workflow import prot, workflow
 
 # Algorithm parameters
 NUM_DAYS_FOR_PRED = 2
@@ -54,7 +53,7 @@ def run(*args: str):
 def collective_decrypt_final_step(client_dir, enc):
 
     # Files from the previous round (prot.COLLECTIVE_DECRYPT)
-    inFile = client_dir / "input.bin" 
+    inFile = client_dir / "input.bin"
     keyFile = client_dir / "decryption_token.bin"
 
     outFile = client_dir / "output.bin"
@@ -68,11 +67,11 @@ def collective_decrypt_final_step(client_dir, enc):
 
     return vec
 
-# Take a list of ndarrays and transform into 
+# Take a list of ndarrays and transform into
 # encrypted binary data
 def encrypt_local_ndarrays(client_dir, data_list):
     arr = np.hstack([np.ravel(v) for v in data_list]).astype(np.float64)
-    
+
     infile = client_dir / "input.bin"
     outfile = client_dir / "output.bin"
     arr.tofile(infile)
@@ -89,7 +88,7 @@ def ndarrays_to_fit_configuration(round_num: int, arrays: List[np.ndarray], clie
     return [(client, fit_ins) for client in clients]
 
 def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path):
-    
+
     id_file = cache_dir / "unique_pids.npy"
     mat_file = cache_dir / "disease_outcome_matrix.npy"
 
@@ -109,7 +108,7 @@ def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path):
 
         uid = np.unique(distrain["pid"])
         id_map = {v: i for i, v in enumerate(uid)}
-        
+
         state_map = {"S":0, "I":1, "R":2}
 
         distrain_nz = distrain.loc[distrain["state"] != "S"]
@@ -130,24 +129,24 @@ def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path):
 
 def train_setup(server_dir: Path, client_dirs_dict: Dict[str, Path]):
     """
-    Perform initial setup between parties before federated training. 
+    Perform initial setup between parties before federated training.
 
     Args:
         server_dir (Path): Path to a directory specific to the server/aggregator
             that is available over the simulation. The server can use this
-            directory for saving and reloading server state. Using this 
+            directory for saving and reloading server state. Using this
             directory is required for the trained model to be persisted between
             training and test stages.
-        client_dirs_dict (Dict[str, Path]): Dictionary of paths to the directories 
-            specific to each client that is available over the simulation. Clients 
+        client_dirs_dict (Dict[str, Path]): Dictionary of paths to the directories
+            specific to each client that is available over the simulation. Clients
             can use these directory for saving and reloading client state. This
-            dictionary is keyed by the client ID. 
+            dictionary is keyed by the client ID.
     """
 
     client_paths = [str(v) for _,v in client_dirs_dict.items()]
 
     run("setup", str(len(client_dirs_dict)), str(server_dir), *client_paths)
-    
+
 
 def train_client_factory(
     cid: str,
@@ -257,9 +256,9 @@ class TrainClient(fl.client.NumPyClient):
 
             max_res = actassign.loc[actassign["lid"]>1000000000]["lid"].max() - 1000000001
             max_actloc = actassign.loc[actassign["lid"]<1000000000]["lid"].max()
-        
+
             return [np.array([max_res]), np.array([max_actloc])], 0, {}
-        
+
         elif round_prot in [prot.LOCAL_STATS, prot.LOCAL_STATS_SECURE]:
 
             max_res, max_actloc = parameters
@@ -292,7 +291,7 @@ class TrainClient(fl.client.NumPyClient):
             eloads_res = np.zeros((Ytrain.shape[1], max_res + 1), dtype=np.float32)
 
             eloads_actloc = np.zeros((Ytrain.shape[1], max_actloc + 1), dtype=np.float32)
-            
+
             for day in tqdm(range(Ytrain.shape[1])):
                 infected = Ytrain[:,day] == 1
 
@@ -300,22 +299,22 @@ class TrainClient(fl.client.NumPyClient):
                 val = infected[pids] * le_res_act["duration"]/3600
                 I = np.zeros(len(le_res_act), dtype=int)
                 J = le_res_act["lid"] - 1000000001
-                
+
                 eloads_res[day,:] = coo_matrix((val, (I, J)), shape=(1, max_res + 1)).toarray()[0]
-            
+
                 pids = np.array([id_map[v] for v in le_other_act["pid"]])
                 val = infected[pids] * le_other_act["duration"]/3600
                 I = np.zeros(len(le_other_act), dtype=int)
                 J = le_other_act["lid"] - 1
-                
+
                 eloads_actloc[day,:] = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
 
             logger.info("Exposure load computation finished")
-            
+
             data_list = [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc]
 
             if round_prot == prot.LOCAL_STATS_SECURE:
-                
+
                 logger.info("Encrypt local disease model parameters and exposure loads")
 
                 enc = encrypt_local_ndarrays(self.client_dir, data_list)
@@ -334,7 +333,7 @@ class TrainClient(fl.client.NumPyClient):
             if round_prot == prot.FEAT:
 
                 duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc = parameters
-            
+
             elif round_prot == prot.FEAT_SECURE:
 
                 logger.info("Finish decryption of aggregate statistics")
@@ -386,13 +385,13 @@ class TrainClient(fl.client.NumPyClient):
             logger.info("Prepare local variables for featurization")
 
             model.setup_features(person, actassign, popnet, id_map)
-            
+
             infected = (Ytrain == 1).transpose()
 
             logger.info("Generate training features for each day and sample instances")
 
-            train_feat, train_label = model.get_train_feat_all_days(infected, Ytrain, 
-                NUM_DAYS_FOR_PRED, IMPUTE, NEG_TO_POS_RATIO, 
+            train_feat, train_label = model.get_train_feat_all_days(infected, Ytrain,
+                NUM_DAYS_FOR_PRED, IMPUTE, NEG_TO_POS_RATIO,
                 agg_data, id_map)
 
             logger.info("Shuffle training data")
@@ -423,7 +422,7 @@ class TrainClient(fl.client.NumPyClient):
             feat_count = train_feat.shape[0]
 
             data_list = [feat_sum, feat_sqsum, feat_count]
-            
+
             if round_prot == prot.FEAT_SECURE:
 
                 logger.info("Encrypt local feature statistics")
@@ -437,12 +436,12 @@ class TrainClient(fl.client.NumPyClient):
                             prot.ITER_FIRST_SECURE, prot.ITER_SECURE,
                             prot.ITER_LAST_SECURE]:
 
-            
+
             logger.info("Load model")
 
             model = MusCATModel(PRIVACY_PARAMS)
             model.load(self.client_dir, is_fed=True)
-            
+
             if round_prot in [prot.ITER_FIRST, prot.ITER_FIRST_SECURE]:
 
                 logger.info("First iter: compute feature means and standard deviations")
@@ -463,14 +462,14 @@ class TrainClient(fl.client.NumPyClient):
                 model.center = feat_sum / feat_count
                 model.scale = np.sqrt((feat_sqsum - (feat_sum**2)) / feat_count)
 
-            else: 
+            else:
 
                 logger.info("Apply a model update based on previous gradients")
-                
+
                 if round_prot in [prot.ITER, prot.ITER_LAST]:
-    
+
                     gradient_sum, sample_count = parameters
-                
+
                 elif round_prot in [prot.ITER_SECURE, prot.ITER_LAST_SECURE]:
 
                     logger.info("Finish decryption of global sum of gradients")
@@ -499,7 +498,7 @@ class TrainClient(fl.client.NumPyClient):
 
             train_feat = np.load(self.client_dir / "train_feat.npy")
             train_label = np.load(self.client_dir / "train_label.npy")
-            
+
             logger.info("Standardize features")
 
             train_feat -= model.center[np.newaxis,:]
@@ -522,7 +521,7 @@ class TrainClient(fl.client.NumPyClient):
             if round_prot in [prot.ITER_SECURE, prot.ITER_FIRST_SECURE]:
 
                 logger.info("Encrypt local gradients")
-            
+
                 enc = encrypt_local_ndarrays(self.client_dir, data_list)
 
                 return [enc], sample_count, {}
@@ -530,18 +529,18 @@ class TrainClient(fl.client.NumPyClient):
             return data_list, sample_count, {}
 
         elif round_prot == prot.TEST_CPS:
-            
-            run("cps-test", self.client_dir)
+
+            run("cps-test", str(self.client_dir))
 
         elif round_prot == prot.TEST_AGG_1:
-            
+
             logger.info(">>>>>>>>>>>" + self.cid)
 
             if self.cid == "client01":
                 intvec = np.array([1, 2, 3, 4, 5], dtype=np.int64)
             else:
                 intvec = np.array([5, 2, 0, 3, 10], dtype=np.int64)
-            
+
             enc = encrypt_local_ndarrays(self.client_dir, [intvec])
 
             return [enc], 0, {}
@@ -675,7 +674,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
         """
         round_num = server_round
         round_prot = TRAIN_ROUNDS[round_num]
-        
+
         logger.info(f">>>>> TrainStrategy: configure_fit round {round_num} ({round_prot})")
 
         clients = list(client_manager.all().values())
@@ -701,7 +700,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
 
         elif round_prot == prot.COLLECTIVE_DECRYPT:
 
-            # Broadcast aggregated ciphertext data 
+            # Broadcast aggregated ciphertext data
             return ndarrays_to_fit_configuration(round_num, params, clients)
 
         elif round_prot == prot.TEST_AGG_1:
@@ -755,7 +754,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
             the global model parameters remain the same.
         metrics : dict
         """
-        
+
         round_num = server_round
         round_prot = TRAIN_ROUNDS[round_num]
 
@@ -775,8 +774,8 @@ class TrainStrategy(fl.server.strategy.Strategy):
 
             max_res = np.array([res[0] for res in fit_res]).max()
             max_actloc = np.array([res[1] for res in fit_res]).max()
-            
-            params = fl.common.ndarrays_to_parameters([max_res, max_actloc])            
+
+            params = fl.common.ndarrays_to_parameters([max_res, max_actloc])
             return params, {}
 
         elif round_prot == prot.LOCAL_STATS:
@@ -791,9 +790,9 @@ class TrainStrategy(fl.server.strategy.Strategy):
             params = fl.common.ndarrays_to_parameters(
                 [duration_cnt, symptom_cnt, recov_cnt, eloads_pop, eloads_res, eloads_actloc])
             return params, {}
-            
+
         elif round_prot == prot.FEAT:
-            
+
             feat_sum = np.sum([res[0] for res in fit_res], axis=0)
             feat_sqsum = np.sum([res[1] for res in fit_res], axis=0)
             feat_count = np.sum([res[2] for res in fit_res], axis=0)
@@ -806,13 +805,13 @@ class TrainStrategy(fl.server.strategy.Strategy):
 
             gradient = np.sum([res[0] for res in fit_res], axis=0)
             sample_count = np.sum([res[1] for res in fit_res], axis=0)
-            
+
             params = fl.common.ndarrays_to_parameters(
                 [gradient, sample_count])
             return params, {}
-        
+
         elif round_prot == prot.ITER_LAST:
-            pass            
+            pass
 
         elif round_prot in [prot.FEAT_SECURE, prot.LOCAL_STATS_SECURE, prot.TEST_AGG_1]:
 
@@ -822,7 +821,7 @@ class TrainStrategy(fl.server.strategy.Strategy):
                 fname = self.server_dir / f"input_{idx}.bin"
                 enc.tofile(fname)
                 file_list.append(fname)
-            
+
             outfile = self.server_dir / "output.bin"
 
             run("aggregate-cipher", self.server_dir, outfile, *file_list)
@@ -999,7 +998,7 @@ def test_client_factory(
     Returns:
         (Union[Client, NumPyClient]): Instance of Flower Client or NumPyClient.
     """
-    
+
     return TestClient(
         cid=cid,
         person_data_path=person_data_path,
@@ -1053,27 +1052,27 @@ class TestClient(fl.client.NumPyClient):
 
             day = -1 # Last day
             infected = Ytrain[:,day] == 1
-            
+
             eloads_pop = infected.sum()
 
             pids = np.array([id_map[v] for v in le_res_act["pid"]])
             val = infected[pids] * le_res_act["duration"]/3600
             I = np.zeros(len(le_res_act), dtype=int)
             J = le_res_act["lid"] - 1000000001
-            
+
             eloads_res = coo_matrix((val, (I, J)), shape=(1, max_res + 1)).toarray()[0]
-        
+
             pids = np.array([id_map[v] for v in le_other_act["pid"]])
             val = infected[pids] * le_other_act["duration"]/3600
             I = np.zeros(len(le_other_act), dtype=int)
             J = le_other_act["lid"] - 1
-            
+
             eloads_actloc = coo_matrix((val, (I, J)), shape=(1, max_actloc + 1)).toarray()[0]
 
             data_list = [eloads_pop, eloads_res, eloads_actloc]
 
             if round_prot == prot.PRED_LOCAL_STATS_SECURE:
-                
+
                 logger.info("Encrypt local exposure loads")
 
                 enc = encrypt_local_ndarrays(self.client_dir, data_list)
@@ -1081,11 +1080,11 @@ class TestClient(fl.client.NumPyClient):
                 return [enc], 0, {}
 
             return data_list, 0, {}
-        
+
         elif round_prot in [prot.PRED_FEAT, prot.PRED_FEAT_SECURE]:
-            
+
             logger.info("Load disease outcomes")
-            
+
             max_res, max_actloc = np.load(self.client_dir / "max_indices.npy")
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path)
 
@@ -1141,7 +1140,7 @@ class TestClient(fl.client.NumPyClient):
             logger.info("Save test features")
 
             np.save(self.client_dir / "test_feat.npy", test_feat)
-        
+
         elif round_prot == prot.COLLECTIVE_DECRYPT:
 
             enc = parameters[0]
@@ -1210,7 +1209,7 @@ class TestClient(fl.client.NumPyClient):
         # Make predictions on the test split. Use model parameters from server.
         # set_model_parameters(self.model, parameters)
         # predictions = self.model.predict(self.disease_outcome_df)
-        
+
         logger.info(f">>>>> TestClient: evaluate")
 
         logger.info("Load model")
@@ -1231,7 +1230,7 @@ class TestClient(fl.client.NumPyClient):
         logger.info("Make predictions")
 
         pred = (self.weights[0] + feat @ self.weights[1:]).ravel()
-    
+
         scaler = MinMaxScaler()
         scaler.fit(pred)
         pred = scaler.transform(pred)
@@ -1255,7 +1254,7 @@ class TestClient(fl.client.NumPyClient):
 
         predictions.loc[preds_format_df.pid].to_csv(self.preds_path)
         logger.info(f"Client test predictions saved to disk for client {self.cid}.")
-        
+
         return 0, 0, {}
 
 
@@ -1304,19 +1303,19 @@ class TestStrategy(fl.server.strategy.Strategy):
             If parameters are returned, then the server will treat these as the
             initial global model parameters.
         """
-        
+
         logger.info(">>>>> TestStrategy: initialize_parameters")
-        
+
         return Parameters([], '')
 
     # TestStrategy
-    def configure_fit( 
+    def configure_fit(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, FitIns]]:
 
         round_num = server_round
         round_prot = TEST_ROUNDS[round_num]
-        
+
         logger.info(f">>>>> TestStrategy: configure_fit round {round_num} ({round_prot})")
 
         clients = list(client_manager.all().values())
@@ -1340,7 +1339,7 @@ class TestStrategy(fl.server.strategy.Strategy):
         self, server_round: int, results: List[Tuple[ClientProxy, FitRes]],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], dict]:
-        
+
         round_num = server_round
         round_prot = TEST_ROUNDS[round_num]
 
@@ -1357,7 +1356,7 @@ class TestStrategy(fl.server.strategy.Strategy):
         ]
 
         if round_prot == prot.PRED_LOCAL_STATS:
-            
+
             eloads_pop = np.sum([res[0] for res in fit_res], axis=0)
             eloads_res = np.sum([res[1] for res in fit_res], axis=0)
             eloads_actloc = np.sum([res[2] for res in fit_res], axis=0)
@@ -1367,7 +1366,7 @@ class TestStrategy(fl.server.strategy.Strategy):
             return params, {}
 
         elif round_prot in [prot.COLLECTIVE_DECRYPT, prot.PRED_LOCAL_STATS_SECURE]:
-            
+
             file_list = []
             for idx, res in enumerate(fit_res):
                 enc = res[0]
@@ -1387,7 +1386,7 @@ class TestStrategy(fl.server.strategy.Strategy):
             return params, {}
 
         elif round_prot in [prot.PRED_FEAT, prot.PRED_FEAT_SECURE]:
-            pass            
+            pass
         else:
             logger.info(f"Unimplemented round {round_num} ({round_prot})")
 
@@ -1400,9 +1399,9 @@ class TestStrategy(fl.server.strategy.Strategy):
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, EvaluateIns]]:
         """Run evaluate on all clients to make test predictions."""
-        
+
         logger.info(">>>>> TestStrategy: configure_evaluate")
-        
+
         evaluate_ins = EvaluateIns(parameters, {})
         clients = list(client_manager.all().values())
         return [(client, evaluate_ins) for client in clients]
@@ -1413,9 +1412,9 @@ class TestStrategy(fl.server.strategy.Strategy):
         failures: List[Union[Tuple[ClientProxy, EvaluateRes], BaseException]],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
         """Do nothing and return empty results. Not actually evaluating any metrics."""
-        
+
         logger.info(">>>>> TestStrategy: aggregate_evaluate")
-        
+
         return None, {}
 
     # Not used

@@ -1,20 +1,18 @@
-from pathlib import Path
-from loguru import logger
-
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-
-from scipy.sparse import coo_matrix
-from sklearn.preprocessing import StandardScaler
-
-from tqdm import tqdm 
-import joblib
 import json
 import math
+from pathlib import Path
 
+import joblib
 import numpy as np
 import scipy as sp
+import torch
+import torch.nn as nn
+from loguru import logger
+from scipy.sparse import coo_matrix
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
 
 class MusCATModel:
 
@@ -33,7 +31,7 @@ class MusCATModel:
             _, count = np.unique(infected_days[(infected_days>0) & recovered], return_counts=True)
 
             # Consider up to 10 days
-            new_vec = np.zeros(10) 
+            new_vec = np.zeros(10)
             max_ind = min(len(count), len(new_vec))
             new_vec[:max_ind] = count[:max_ind]
             count = new_vec
@@ -41,14 +39,14 @@ class MusCATModel:
             # Differential privacy
             if self.priv:
                 eps, delta = self.priv.disease_progression
-        
+
                 logger.info(f"Add noise for diff privacy: eps {eps} delta {delta}")
 
                 count += GaussianMechNoise(eps=eps, delta=delta, l2_sens=1, shape=len(count))
 
         prob_delta = count / count.sum()
         prob_delta_cumul = prob_delta[::-1].cumsum()
-        
+
         logger.info("Probability density for duration of infection:\n", prob_delta)
 
         self.prob_delta_cumul = prob_delta_cumul
@@ -72,7 +70,7 @@ class MusCATModel:
             # Differential privacy
             if self.priv:
                 eps, delta = self.priv.symptom_development
-        
+
                 logger.info(f"Add noise for diff privacy: eps {eps} delta {delta}")
 
                 asymptom_cnt = recov_cnt - symptom_cnt
@@ -80,7 +78,7 @@ class MusCATModel:
                 noise = GaussianMechNoise(eps=eps, delta=delta, l2_sens=1, shape=2)
                 symptom_cnt += noise[0]
                 asymptom_cnt += noise[1]
-                
+
                 recov_cnt = symptom_cnt + asymptom_cnt
 
         prob_alpha = (symptom_cnt / recov_cnt)[0]
@@ -100,43 +98,43 @@ class MusCATModel:
             eloads["loc-act"] = agg_data["eloads_actloc"][day]
         else:
             eloads["pop"] = beliefs.sum()
-            
+
             # Differential privacy
             if self.priv:
                 eps, delta = self.priv.exposure_load_population
                 inf_max = self.priv.infection_duration_max
-        
+
                 logger.info(f"Add noise to population exposure for diff privacy: eps {eps} delta {delta}")
 
-                eloads["pop"] += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads["pop"] += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=np.sqrt(inf_max), shape=eloads["pop"].shape)
 
             val = beliefs[self.le_res_act["pid"]] * self.le_res_act["duration"]/3600
             if self.priv:
                 logger.info(f"Clamping location exposure duration (residence)")
-                val = np.minimum(val, self.priv.location_duration_max/3600) 
+                val = np.minimum(val, self.priv.location_duration_max/3600)
 
             I = np.zeros(len(self.le_res_act), dtype=int)
             J = self.le_res_act["lid"] - 1000000001
             eloads["loc-home"] = coo_matrix((val, (I, J))).toarray()[0]
-            
+
             # Differential privacy
             if self.priv:
                 eps, delta = self.priv.exposure_load_location
                 eps, delta = eps/2, delta/2 # Applied twice: residence and activity locations
                 val_max = self.priv.location_duration_max/3600
                 inf_max = self.priv.infection_duration_max
-        
+
                 logger.info(f"Add noise to location exposure (residence) for diff privacy: eps {eps} delta {delta}")
 
-                eloads["loc-home"] += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads["loc-home"] += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*(24.0/val_max)),
                     shape=eloads["loc-home"].shape)
 
             val = beliefs[self.le_other_act["pid"]] * self.le_other_act["duration"]/3600
             if self.priv:
                 logger.info(f"Clamping location exposure duration (activity)")
-                val = np.minimum(val, self.priv.location_duration_max/3600) 
+                val = np.minimum(val, self.priv.location_duration_max/3600)
 
             I = np.zeros(len(self.le_other_act), dtype=int)
             J = self.le_other_act["lid"] - 1
@@ -148,10 +146,10 @@ class MusCATModel:
                 eps, delta = eps/2, delta/2 # Applied twice: residence and activity locations
                 val_max = self.priv.location_duration_max/3600
                 inf_max = self.priv.infection_duration_max
-        
+
                 logger.info(f"Add noise to location exposure (activity) for diff privacy: eps {eps} delta {delta}")
 
-                eloads["loc-act"] += GaussianMechNoise(eps=eps, delta=delta, 
+                eloads["loc-act"] += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*(24.0/val_max)),
                     shape=eloads["loc-act"].shape)
 
@@ -169,10 +167,10 @@ class MusCATModel:
 
         beliefs = (Ytrain == 1).transpose()
 
-        self.train_feat, self.train_label = self.get_train_feat_all_days(beliefs, Ytrain, 
+        self.train_feat, self.train_label = self.get_train_feat_all_days(beliefs, Ytrain,
             num_days_for_pred, impute, neg_to_pos_ratio)
-        
-        self.fit_disease_transmission(self.train_feat, self.train_label, batch_size, num_epochs, 
+
+        self.fit_disease_transmission(self.train_feat, self.train_label, batch_size, num_epochs,
             use_adam, learn_rate)
 
 
@@ -218,7 +216,7 @@ class MusCATModel:
         self.pe_base_feat = pe_base_feat
 
         # Ignore contacts shorter than 30 mins
-        popnet_30m = popnet.loc[popnet["duration"] > 60*30] 
+        popnet_30m = popnet.loc[popnet["duration"] > 60*30]
 
         # Build contact network adjacency for each type (edges weighted by duration)
         ce_A_list = [None] * 7
@@ -232,7 +230,7 @@ class MusCATModel:
                 I = np.array([id_map[v] for v in I])
                 J = np.array([id_map[v] for v in J])
 
-            A1 = coo_matrix((val.astype(float), (I,J)), shape=(len(person),len(person))) 
+            A1 = coo_matrix((val.astype(float), (I,J)), shape=(len(person),len(person)))
 
             popnet_30m_act = popnet_30m.loc[popnet_30m["activity2"] == atype]
             val = popnet_30m_act["duration"] / 3600 # In units of 1 hour blocks
@@ -243,7 +241,7 @@ class MusCATModel:
                 I = np.array([id_map[v] for v in I])
                 J = np.array([id_map[v] for v in J])
 
-            A2 = coo_matrix((val.astype(float), (I,J)), shape=(len(person),len(person))) 
+            A2 = coo_matrix((val.astype(float), (I,J)), shape=(len(person),len(person)))
 
             A = (A1 + A2) / 2
             A = (A.transpose() + A) / 2 # Symmetrize
@@ -319,7 +317,7 @@ class MusCATModel:
                 out = self.ce_A_combined @ out
 
         res = np.vstack([self.ce_A_list[atype] @ out for atype in range(len(self.ce_A_list))])
-        
+
         if ndays == 1 and self.priv and inference: # if ndays is 1, need to add noise here instead
 
             res += GaussianMechNoise(eps=eps, delta=delta,
@@ -335,10 +333,10 @@ class MusCATModel:
 
         eloads = self.compute_exposure_loads(beliefs[-1], agg_data, day)
 
-        pe_feat = self.eloads_to_pop_feat(eloads)    
+        pe_feat = self.eloads_to_pop_feat(eloads)
         le_feat = self.eloads_to_loc_feat(eloads, id_map)
         ce_feat = np.vstack([self.compute_contact_feat(beliefs[-1-d], d+1) for d in range(ndays)])
-        
+
         return np.vstack((pe_feat,le_feat,ce_feat))
 
     def predict(self, Ytrain):
@@ -371,10 +369,10 @@ class MusCATModel:
     # sample training instances and construct features
     def get_train_feat_all_days(self, beliefs, Ytrain, ndays_for_feat=1, impute=False, neg_to_pos_ratio=3, agg_data=None, id_map=None):
         days = Ytrain.shape[1]
-        
+
         # Function to process each day d in parallel
         def process_day(d, agg_data):
-            
+
             sus = Ytrain[:,d-1] == 0
             infected = Ytrain[:,d] == 1
             still_sus = Ytrain[:,d] == 0
@@ -383,16 +381,16 @@ class MusCATModel:
             neg = sus & still_sus  # not infected
 
             npos = pos.sum()
-            
+
             beliefs_updated = beliefs[d-ndays_for_feat:d].copy().astype(np.float32)
 
             if impute and ndays_for_feat > 1:
-            
+
                 for d2 in range(beliefs_updated.shape[0]-1): # except last day
                     d_idx = d2 + d-ndays_for_feat # original day index
                     asym = (Ytrain[:,d_idx] == 0) & (Ytrain[:,d_idx+1] == 2) # recovered on day d_idx+1
                     beliefs_updated[:d2+1,asym.ravel()] = self.prob_delta_cumul[-d2-1:][:,np.newaxis]
-                        
+
             # Construct features from previous beliefs
             all_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, d-1, id_map)
 
@@ -405,8 +403,8 @@ class MusCATModel:
             negind = np.random.choice(np.where(neg)[0], size=nneg, replace=False)
             neg_feat = all_feat[:,negind]
             neg_label = np.zeros(len(negind))
-            
-            return np.hstack([pos_feat.squeeze(), neg_feat.squeeze()]), np.hstack([pos_label, neg_label])        
+
+            return np.hstack([pos_feat.squeeze(), neg_feat.squeeze()]), np.hstack([pos_label, neg_label])
 
         day_range = np.arange(ndays_for_feat, days)
 
@@ -415,18 +413,18 @@ class MusCATModel:
         results = [process_day(d, agg_data) for d in tqdm(day_range)]
 
         # Concatenate results
-        train_feat_concat = np.hstack([t[0].squeeze() for t in results])       
+        train_feat_concat = np.hstack([t[0].squeeze() for t in results])
         train_feat_concat = train_feat_concat.transpose().astype(np.float32)
 
         train_label_concat = np.hstack([t[1] for t in results])
 
-        return train_feat_concat, train_label_concat      
+        return train_feat_concat, train_label_concat
 
     def fit_disease_transmission(self, train_feat, train_label, batch_size=1000, num_epochs=15, use_adam=True, learn_rate=0.005):
 
         model = PoissonExposureModel(train_feat.shape[1], 1)
 
-        scaler = StandardScaler()    
+        scaler = StandardScaler()
         scaler.fit(train_feat)
         train_feat = scaler.transform(train_feat)
 
@@ -436,7 +434,7 @@ class MusCATModel:
 
         # Define the loss function and optimizer
         loss_fn = BinaryPoissonNLLLoss()
-        if use_adam: 
+        if use_adam:
             optimizer = torch.optim.Adam(model.parameters(), lr=learn_rate)
         else:
             optimizer = torch.optim.SGD(model.parameters(), lr=learn_rate)
@@ -461,7 +459,7 @@ class MusCATModel:
                     logger.info(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
                 batch += 1
-        
+
         self.model = model
         self.scaler = scaler
 
@@ -476,7 +474,7 @@ class MusCATModel:
                     "scale":self.scale.tolist()}
         else:
             torch.save(self.model, model_dir / "model.save")
-            joblib.dump(self.scaler, model_dir / "scaler.save") 
+            joblib.dump(self.scaler, model_dir / "scaler.save")
             params = {"delta_cumul":self.prob_delta_cumul.tolist(),
                     "alpha":self.prob_alpha,
                     "num_days":self.num_days_for_pred,
@@ -495,32 +493,32 @@ class MusCATModel:
             self.scale = np.array(params["scale"])
         else:
             self.model = torch.load(model_dir / "model.save")
-            self.scaler = joblib.load(model_dir / "scaler.save") 
-            
+            self.scaler = joblib.load(model_dir / "scaler.save")
+
         self.prob_delta_cumul = np.array(params["delta_cumul"])
         self.prob_alpha = float(params["alpha"])
         self.num_days_for_pred = params["num_days"]
         self.impute = params["impute"]
-    
+
     def compute_gradient_sum(self, feat, label):
-        
+
         z = (self.weights[0] + feat @ self.weights[1:]).ravel()
 
         dloss_dz = (1 - 2 / (1 - np.exp(-z)))
         dloss_dz[label == 0] = 1
 
         feat_with_intercept = np.hstack([np.ones(feat.shape[0])[:,np.newaxis], feat])
-        
+
         if self.priv:
 
             eps, delta = self.priv.model_training_sgd
             norm_thres = self.priv.sgd_grad_norm_max
 
             logger.info(f"Add noise to gradients for diff privacy: eps {eps} delta {delta}")
-            
+
             gradient = dloss_dz.ravel()[:,np.newaxis] * feat_with_intercept
             gradient_norm = np.sqrt((gradient**2).sum(axis=1)).ravel()
-            
+
             scaling = np.minimum(1.0, norm_thres / gradient_norm)
 
             gradient *= scaling[:,np.newaxis]
@@ -531,11 +529,11 @@ class MusCATModel:
 
         else:
             gradient_sum = dloss_dz @ feat_with_intercept
-            
+
         sample_count = len(z)
 
         return gradient_sum.ravel(), sample_count
-        
+
 class MatrixDataset(torch.utils.data.Dataset):
     def __init__(self, data, labels):
         assert(len(data) == len(labels))
@@ -550,7 +548,7 @@ class MatrixDataset(torch.utils.data.Dataset):
 
     def get_labels(self):
         return self.labels
-    
+
 def log1mexp(x: torch.Tensor) -> torch.Tensor:
     """Numerically accurate evaluation of log(1 - exp(x)) for x < 0.
        See [Maechler2012accurate]_ for details.
@@ -576,14 +574,14 @@ class BinaryPoissonNLLLoss(nn.Module):
     def forward(self, input, target):
         if self.log_input:
             input = input.log()
-        
+
         input = ClipModelOutput(input)
         loss = (1 - target) * (input) + target * (- log1mexp(- input))
-                        
+
         if self.size_average:
             return loss.mean()
         return loss.sum()
-    
+
 class PoissonExposureModel(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(PoissonExposureModel, self).__init__()
@@ -597,9 +595,9 @@ def GaussianMechNoise(eps=1, delta=1e-2, l2_sens=1, shape=1):
     return sp.stats.norm.rvs(loc=0, scale=sigma, size=shape)
 
 def PruneGraph(A_combined, A_list, degree_thres):
-    
+
     n = A_combined.shape[1]
-    
+
     # Prune A_combined
     logger.info("Prune combined contact graph")
     for cidx in tqdm(range(n), unit_scale=1, mininterval=6):
@@ -608,7 +606,7 @@ def PruneGraph(A_combined, A_list, degree_thres):
             order = np.argsort(A_combined.data[st:en])[::-1]
             A_combined.data[st + order[thres:]] = 0
     A_combined.eliminate_zeros()
-    
+
     # Prune individual A
     logger.info("Prune individual contact graph (one for activity type)")
     for i in range(len(A_list)):
@@ -617,11 +615,11 @@ def PruneGraph(A_combined, A_list, degree_thres):
         for cidx in tqdm(range(n), unit_scale=1, mininterval=6):
             st, en = A_list.indptr[cidx:cidx+2]
             st2, en2 = A_comb.indptr[cidx:cidx+2]
-            
+
             filt = np.array([idx not in A_comb.indices[st2:en2] for idx in A_list.indices[st:en]], astype=bool)
 
             A_list.data[st:en][filt] = 0
 
         A_list[i].eliminate_zeros()
-    
+
     return A_combined, A_list

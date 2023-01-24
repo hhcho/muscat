@@ -1,13 +1,12 @@
 from pathlib import Path
 
-from loguru import logger
-import pandas as pd
-
 import numpy as np
+import pandas as pd
+from loguru import logger
 from scipy.sparse import coo_matrix
+from sklearn.preprocessing import MinMaxScaler
 
 from .muscat_model import MusCATModel
-from sklearn.preprocessing import MinMaxScaler
 
 NUM_DAYS_FOR_PRED = 2
 IMPUTE = True
