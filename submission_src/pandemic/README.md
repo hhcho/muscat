@@ -5,21 +5,53 @@
 Our solution introduces **_MusCAT_**, a multi-scale federated system
 for privacy-preserving pandemic risk prediction. It is implemented in Python and Go.
 
-1. Centralized solution uses Python.
+- Centralized solution uses Python:
 
-   **_Outline the algorithm and the libraries used_**
+  - [solution_centralized.py](solution_centralized.py) represents the entrypoint to the solution
 
-2. Federated solution uses both Python and Go. The latter is needed for
-   performance optimization, and uses the following high-performance Go libraries:
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model
 
-   - [hcholab/lattigo](https://github.com/hcholab/lattigo/tree/petschal), a custom fork of
-     [tuneinsight/lattigo](https://github.com/tuneinsight/lattigo) library
-     for lattice-based homomorphic encryption
+- Federated solution uses both Python and Go. The latter is needed for
+  performance optimization, and uses a custom fork of
+  [tuneinsight/lattigo](https://github.com/tuneinsight/lattigo)
+  library for lattice-based homomorphic encryption.
 
-   - [dedis/onet](https://github.com/dedis/onet), Overlay Network library
-     for simulation and deployment of decentralized, distributed protocols
+  - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution
 
-   **_Outline the algorithm and the libraries used_**
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model
+
+  - [muscat_privacy.py](muscat_privacy.py) contains static parameters for
+    Differentional Privacy (DP)
+
+  - [muscat_workflow.py](muscat_workflow.py) contains static parameters for
+    the secure and plaintext training and testing workflows
+
+  - [mhe_routines.go](mhe_routines.go) represents the Go entrypoint that
+    parses command-line arguments passed to it from Python, and executes
+    a computation corresponding to its step in the Python workflow.
+    This takes the form:
+
+    ```sh
+    petchal <command> <arg1> [<arg2> ...]
+    ```
+
+    where `<command>` designates a step in the workflow,
+    and `<arg1> [<arg2> ...]` represents various parameters, which
+    specify either path(s) to the data directory(s), or numeric parameters.
+
+  - [mhe/crypto.go](mhe/crypto.go) contains cryptographic utilities
+    for Multiparty Homomorphic Encryption (MHE), along with some functions
+    to handle disk I/O, which is needed for passing data from/to Python.
+
+  - [mhe/protocols.go](mhe/protocols.go) provides high-level functions
+    that implement disk-assisted client-server communication protocol
+
+  - [mhe/utilities.go](mhe/utilities.go) contains auxiliary utilities,
+    including functions to (de)serialize data vectors and matrices
+    from/to disk, in order to pass them from/to Python
+
+- [go.mod](go.mod) and [go.sum](go.sum) configure third-party Go
+  dependencies.
 
 ## Building
 
