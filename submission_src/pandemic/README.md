@@ -50,8 +50,8 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
     including functions to (de)serialize data vectors and matrices
     from/to disk, in order to pass them from/to Python
 
-- [go.mod](go.mod) and [go.sum](go.sum) configure third-party Go
-  dependencies.
+  - [go.mod](go.mod) and [go.sum](go.sum) configure third-party Go
+    dependencies.
 
 ## Building
 
