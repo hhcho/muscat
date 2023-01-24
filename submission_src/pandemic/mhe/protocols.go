@@ -6,11 +6,12 @@ import (
 	"io"
 	"os"
 
+	"log"
+
 	"github.com/ldsec/lattigo/v2/ckks"
 	"github.com/ldsec/lattigo/v2/dckks"
 	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/utils"
-	"go.dedis.ch/onet/v3/log"
 )
 
 func LoadSharedKeyAndRefresh(pidPath string) []byte {
@@ -30,10 +31,13 @@ func LoadSharedKeyAndRefresh(pidPath string) []byte {
 }
 
 func CollectiveDecryptClientSend(pidPath, vectorToDecryptFile, outFile, keyFile, dimFile string) {
+
 	cps := NewCryptoParamsFromDiskPath(false, pidPath, 1)
 	parameters := cps.Params
 	skShard := cps.Sk.Value
+
 	cm, _ := LoadCipherMatrixFromFile(cps, vectorToDecryptFile)
+
 	nr := len(cm)
 	nc := len(cm[0])
 	level := cm[0][0].Level()
@@ -48,8 +52,6 @@ func CollectiveDecryptClientSend(pidPath, vectorToDecryptFile, outFile, keyFile,
 	// Read mask flag
 	flag, _ := LoadFullFile(pidPath + "/mask.bin")
 	toMask := int(flag[0]) > 0
-
-	log.LLvl1("toMask:", toMask)
 
 	// Sample two shared keys
 	decToken := LoadSharedKeyAndRefresh(pidPath)

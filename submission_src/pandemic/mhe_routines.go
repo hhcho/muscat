@@ -18,7 +18,7 @@ func main() {
 
 	command := os.Args[1]
 
-	log.Println(command)
+	log.Println("Go MHE routine called:", command)
 
 	switch command {
 
