@@ -19,13 +19,13 @@ Additionally, please use `CPU_OR_GPU=cpu` for the runtime.
 
 ### Local testing/development
 
-The remaining instructions are _only_ needed for local testing/development,
-and to (re)generate `submission.zip`.
+The following instructions are _only_ needed for local testing/development,
+and to (re)generate `submission.zip`:
 
 - Clone the challenge repository:
 
   ```sh
-  cd $(mktemp -d) # use an temporary (or an empty) directory
+  cd $(mktemp -d) # use a temporary (or an empty) directory
   git clone https://github.com/drivendataorg/pets-prize-challenge-runtime .
   ```
 
