@@ -1,5 +1,26 @@
 # U.S. PETs Prize Challenge: Phase 2 (Pandemic Forecasting–Federated)
 
+## Code layout and implementation
+
+Our solution introduces **_MusCAT_**, a multi-scale federated system
+for privacy-preserving pandemic risk prediction. It is implemented in Python and Go.
+
+1. Centralized solution uses Python.
+
+   **_Outline the algorithm and the libraries used_**
+
+2. Federated solution uses both Python and Go. The latter is needed for
+   performance optimization, and uses the following high-performance Go libraries:
+
+   - [hcholab/lattigo](https://github.com/hcholab/lattigo/tree/petschal), a custom fork of
+     [tuneinsight/lattigo](https://github.com/tuneinsight/lattigo) library
+     for lattice-based homomorphic encryption
+
+   - [dedis/onet](https://github.com/dedis/onet), Overlay Network library
+     for simulation and deployment of decentralized, distributed protocols
+
+   **_Outline the algorithm and the libraries used_**
+
 ## Building
 
 Our solution incorporates both Python and Go source code, along with the Go binary named `petchal`, which is pre-compiled from this code.
