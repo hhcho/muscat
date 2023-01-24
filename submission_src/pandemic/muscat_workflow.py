@@ -40,9 +40,9 @@ class workflow:
     @staticmethod
     def SECURE_TRAIN_ROUNDS(num_iters: int):
         return [None,
-                prot.UNIFY_LOC,
-                prot.LOCAL_STATS_SECURE,
-                prot.COLLECTIVE_DECRYPT,
+                # prot.UNIFY_LOC,
+                # prot.LOCAL_STATS_SECURE,
+                # prot.COLLECTIVE_DECRYPT,
                 prot.FEAT_SECURE,
                 prot.COLLECTIVE_DECRYPT,
                 prot.ITER_FIRST_SECURE,
