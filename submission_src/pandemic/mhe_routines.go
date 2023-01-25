@@ -153,7 +153,7 @@ func main() {
 	// Run the Go profiler if enabled
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		if err := writePProf(command); err != nil {
-			log.Fatal(err)
+			log.Println("ERROR writing Profiler data: ", err)
 		}
 	}
 }
@@ -169,18 +169,18 @@ func writePProf(command string) (err error) {
 	}
 
 	// create the output file
-	f := fmt.Sprintf("%s/%s_%s_%s", dir, command, pprofType, time.Now().Format(time.RFC3339))
-	w, err := os.Create(f)
+	file := fmt.Sprintf("%s/%s_%s_%s.pprof", dir, command, pprofType, time.Now().Format(time.RFC3339))
+	writer, err := os.Create(file)
 	defer func() {
-		w.Close()
+		writer.Close()
 	}()
 	if err != nil {
 		return
 	}
 
 	// write the heap profile
-	if err = pprof.Lookup(pprofType).WriteTo(w, 0); err == nil {
-		log.Printf("------------------------- Wrote heap profile to %s", f)
+	if err = pprof.Lookup(pprofType).WriteTo(writer, 0); err == nil {
+		log.Printf("Wrote %s profile to %s", pprofType, file)
 	}
 	return
 }

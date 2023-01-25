@@ -35,7 +35,6 @@ TTY_ARGS = -it
 endif
 
 # option to block or allow internet access from the submission Docker container
-BLOCK_INTERNET ?= true
 ifeq (true, ${BLOCK_INTERNET})
 NETWORK_ARGS = --network none
 endif
@@ -135,6 +134,7 @@ endif
 		${GPU_ARGS} \
 		${NETWORK_ARGS} \
 		--env SUBMISSION_TRACK=${SUBMISSION_TRACK} \
+		--network none \
 		--mount type=bind,source="$(shell pwd)"/data/${SUBMISSION_TRACK},target=/code_execution/data,readonly \
 		--mount type=bind,source="$(shell pwd)"/submission,target=/code_execution/submission \
 		--shm-size ${SHM_SIZE} \
