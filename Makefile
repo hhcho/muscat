@@ -19,6 +19,8 @@ ifeq (${SKIP_GPU}, true)
 GPU_ARGS =
 endif
 
+SHM_SIZE ?= 8g
+
 TAG = ${CPU_OR_GPU}-latest
 LOCAL_TAG = ${CPU_OR_GPU}-local
 
@@ -135,7 +137,7 @@ endif
 		--env SUBMISSION_TRACK=${SUBMISSION_TRACK} \
 		--mount type=bind,source="$(shell pwd)"/data/${SUBMISSION_TRACK},target=/code_execution/data,readonly \
 		--mount type=bind,source="$(shell pwd)"/submission,target=/code_execution/submission \
-		--shm-size 8g \
+		--shm-size ${SHM_SIZE} \
 		--name ${CONTAINER_NAME} \
 		--rm \
 		${SUBMISSION_IMAGE} \

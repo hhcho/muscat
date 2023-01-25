@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"log"
-
-	"runtime"
 	"runtime/pprof"
 
 	"github.com/hhcho/petchal/mhe"
@@ -160,16 +158,18 @@ func main() {
 	}
 }
 
+const pprofType = "heap"
+
 // Start the Go profiler if environment variable ENABLE_PPROF=true
 func writePProf(command string) (err error) {
 	// create output directory, if not present
-	dir := "submisstion/heap"
+	dir := "submission/pprof"
 	if err = os.MkdirAll(dir, os.ModePerm); err != nil {
 		return
 	}
 
 	// create the output file
-	f := fmt.Sprintf("%s/%s_heap_%s", dir, command, time.Now().Format(time.RFC3339))
+	f := fmt.Sprintf("%s/%s_%s_%s", dir, command, pprofType, time.Now().Format(time.RFC3339))
 	w, err := os.Create(f)
 	defer func() {
 		w.Close()
@@ -178,11 +178,8 @@ func writePProf(command string) (err error) {
 		return
 	}
 
-	// get up-to-date statistics
-	runtime.GC()
-
 	// write the heap profile
-	if err = pprof.Lookup("heap").WriteTo(w, 0); err == nil {
+	if err = pprof.Lookup(pprofType).WriteTo(w, 0); err == nil {
 		log.Printf("------------------------- Wrote heap profile to %s", f)
 	}
 	return
