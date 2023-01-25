@@ -3,12 +3,17 @@ package main
 import (
 	"encoding/binary"
 
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
 	"strconv"
+	"time"
 
 	"log"
+
+	"runtime"
+	"runtime/pprof"
 
 	"github.com/hhcho/petchal/mhe"
 	"github.com/ldsec/lattigo/v2/ckks"
@@ -145,6 +150,40 @@ func main() {
 		outFile := os.Args[6]
 
 		mhe.CollectiveDecryptClientReceive(pidPath, inFile, serverFile, keyFile, outFile)
-
 	}
+
+	// Run the Go profiler if enabled
+	if os.Getenv("ENABLE_PPROF") == "true" {
+		if err := writePProf(command); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+// Start the Go profiler if environment variable ENABLE_PPROF=true
+func writePProf(command string) (err error) {
+	// create output directory, if not present
+	dir := "submisstion/heap"
+	if err = os.MkdirAll(dir, os.ModePerm); err != nil {
+		return
+	}
+
+	// create the output file
+	f := fmt.Sprintf("%s/%s_heap_%s", dir, command, time.Now().Format(time.RFC3339))
+	w, err := os.Create(f)
+	defer func() {
+		w.Close()
+	}()
+	if err != nil {
+		return
+	}
+
+	// get up-to-date statistics
+	runtime.GC()
+
+	// write the heap profile
+	if err = pprof.Lookup("heap").WriteTo(w, 0); err == nil {
+		log.Printf("------------------------- Wrote heap profile to %s", f)
+	}
+	return
 }
