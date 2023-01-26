@@ -455,6 +455,9 @@ class MusCATModel:
             # Construct features from previous beliefs
             all_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, d-1, id_map, priv=self.priv, is_training=True)
 
+            if npos == 0:
+                return np.zeros((all_feat.shape[0],0)), np.zeros(0)
+
             # Positive cases
             pos_feat = all_feat[:,np.where(pos)[0]]
             pos_label = np.ones(npos)
@@ -465,7 +468,7 @@ class MusCATModel:
             neg_feat = all_feat[:,negind]
             neg_label = np.zeros(len(negind))
 
-            return np.hstack([pos_feat.squeeze(), neg_feat.squeeze()]), np.hstack([pos_label, neg_label])
+            return np.hstack([pos_feat, neg_feat]), np.hstack([pos_label, neg_label])
 
         day_range = np.arange(ndays_for_feat, days)
 

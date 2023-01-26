@@ -273,6 +273,8 @@ class TrainClient(fl.client.NumPyClient):
         round_num = int(config['round'])
         round_prot = TRAIN_ROUNDS[round_num]
 
+        priv = PRIVACY_PARAMS
+
         num_clients = np.load(self.client_dir / "num_clients.npy")
 
         logger.info(f">>>>> TrainClient: fit round {round_num} ({round_prot})")
@@ -289,7 +291,6 @@ class TrainClient(fl.client.NumPyClient):
         elif round_prot in [prot.LOCAL_STATS, prot.LOCAL_STATS_SECURE]:
 
             max_res, max_actloc = parameters
-            priv = PRIVACY_PARAMS
 
             logger.info("Save max indicies across clients\t" + repr((max_res, max_actloc)))
 
@@ -544,10 +545,10 @@ class TrainClient(fl.client.NumPyClient):
             feat_sqsum = (train_feat**2).sum(axis=0)
             feat_count = train_feat.shape[0]
 
-            if self.priv:
+            if priv:
                 logger.info("Add noise to feature statistics for differential privacy")
 
-                eps, delta = self.priv.feature_mean_stdev
+                eps, delta = priv.feature_mean_stdev
                 eps /= 2 # Apply twice
 
                 # CoinPress algorithm for private mean estimation
