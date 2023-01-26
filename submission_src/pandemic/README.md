@@ -45,7 +45,7 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
     for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python. See Section *5.2.1 (Efficiency & Scalability → MHE Operations)* on the use of these cryptographic primitives.
 
   - [mhe/protocols.go](mhe/protocols.go) provides high-level functions
-    that implement disk-assisted client-server communication protocol. See *Sections 5.2.1 (Efficiency & Scalability) and 6 (Discussion and Extensions to other Data Sources and Models → Practical Optimizations)* for a discussion about efficiency of this protocol implementation.
+    that implement disk-assisted client-server communication protocol. See *Sections 5.2.1 (Efficiency & Scalability) for this protocol implementation.
 
   - [mhe/utilities.go](mhe/utilities.go) contains auxiliary utilities,
     including functions to (de)serialize data vectors and matrices
