@@ -16,8 +16,9 @@ from tqdm import tqdm
 
 class MusCATModel:
 
-    def __init__(self, priv=None):
+    def __init__(self, priv=None, num_clients=1):
         self.priv = priv # Privacy parameters, if None, do not apply differential privacy
+        self.num_clients = num_clients
 
     def fit_disease_progression(self, Ytrain, agg_data=None):
 
@@ -48,6 +49,8 @@ class MusCATModel:
                 eps, delta = self.priv.disease_progression
 
                 logger.info(f"Add noise for diff privacy: eps {eps} delta {delta}")
+
+                eps *= np.sqrt(self.num_clients - 1) # Amplification from secure aggregation
 
                 count += GaussianMechNoise(eps=eps, delta=delta, l2_sens=1, shape=len(count))
 
@@ -81,6 +84,8 @@ class MusCATModel:
                 logger.info(f"Add noise for diff privacy: eps {eps} delta {delta}")
 
                 asymptom_cnt = recov_cnt - symptom_cnt
+
+                eps *= np.sqrt(self.num_clients - 1) # Amplification from secure aggregation
 
                 noise = GaussianMechNoise(eps=eps, delta=delta, l2_sens=1, shape=2)
                 symptom_cnt = float(symptom_cnt) + noise[0]
@@ -219,7 +224,7 @@ class MusCATModel:
                 I = np.array([id_map[v] for v in I])
                 J = np.array([id_map[v] for v in J])
 
-            nperson = max(I.max(), J.max()) + 1
+            nperson = len(person)
 
             I2 = np.hstack([I, J])
             J2 = np.hstack([J, I])
@@ -605,6 +610,8 @@ class MusCATModel:
                                                     # affected by one individual
 
             logger.info(f"Add noise to gradients for diff privacy: eps {eps} delta {delta}")
+
+            eps *= np.sqrt(self.num_clients - 1) # Amplification from secure aggregation
 
             gradient_norm = np.sqrt((grad ** 2).sum(axis=1)).ravel()
 

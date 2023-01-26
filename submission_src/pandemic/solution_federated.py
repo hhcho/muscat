@@ -20,6 +20,7 @@ from tqdm import tqdm
 from .muscat_model import MusCATModel, GaussianMechNoise
 from .muscat_workflow import prot, workflow
 from .muscat_privacy import MusCATPrivacy
+from .dpmean import multivariate_mean_iterative
 
 # Algorithm parameters
 NUM_DAYS_FOR_PRED = 2
@@ -164,7 +165,12 @@ def train_setup(server_dir: Path, client_dirs_dict: Dict[str, Path]):
 
     client_paths = [str(v) for _,v in client_dirs_dict.items()]
 
-    run("setup", str(len(client_dirs_dict)), str(server_dir), *client_paths)
+    num_clients = len(client_dirs_dict)
+
+    for p in client_paths:
+        np.save(Path(p) / "num_clients.npy", np.array([num_clients]))
+
+    run("setup", str(num_clients), str(server_dir), *client_paths)
 
 
 def train_client_factory(
@@ -267,6 +273,8 @@ class TrainClient(fl.client.NumPyClient):
         round_num = int(config['round'])
         round_prot = TRAIN_ROUNDS[round_num]
 
+        num_clients = np.load(self.client_dir / "num_clients.npy")
+
         logger.info(f">>>>> TrainClient: fit round {round_num} ({round_prot})")
 
         if round_prot == prot.UNIFY_LOC:
@@ -288,14 +296,16 @@ class TrainClient(fl.client.NumPyClient):
             np.save(self.client_dir / "max_indices.npy", np.array([max_res, max_actloc]))
 
             logger.info("Load data")
-
+            
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path,
                                                   priv.infection_duration_max)
 
             logger.info("Compute local disease progression stats")
 
-            model = MusCATModel(PRIVACY_PARAMS)
+            num_clients = np.load(self.client_dir / "num_clients.npy")
+            model = MusCATModel(PRIVACY_PARAMS, num_clients)
+
             duration_cnt = model.fit_disease_progression(Ytrain)
 
             logger.info("Compute local symptom development stats")
@@ -314,6 +324,8 @@ class TrainClient(fl.client.NumPyClient):
                 inf_max = priv.infection_duration_max
 
                 logger.info(f"Add noise to population exposure for diff privacy: eps {eps} delta {delta}")
+
+                eps *= np.sqrt(num_clients - 1) # Amplification from secure aggregation
 
                 eloads_pop += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=np.sqrt(inf_max), shape=eloads_pop.shape)
@@ -377,6 +389,8 @@ class TrainClient(fl.client.NumPyClient):
                 loc_max = 24.0/val_max # Maximum number of sensitive locations per person
 
                 logger.info(f"Add noise to location exposure for diff privacy: eps {eps} delta {delta}")
+
+                eps *= np.sqrt(num_clients - 1) # Amplification from secure aggregation
 
                 eloads_res += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*loc_max),
@@ -464,8 +478,9 @@ class TrainClient(fl.client.NumPyClient):
                 person = pd.read_csv(self.person_data_path)
                 actassign = pd.read_csv(self.activity_location_assignment_data_path)
                 popnet = pd.read_csv(self.population_network_data_path)
-
-                model = MusCATModel(PRIVACY_PARAMS)
+                num_clients = np.load(self.client_dir / "num_clients.npy")
+            
+                model = MusCATModel(PRIVACY_PARAMS, num_clients)
 
                 logger.info("Fit disease model using aggregate statistics")
 
@@ -499,7 +514,8 @@ class TrainClient(fl.client.NumPyClient):
 
                 logger.info("Loading cached model and train features")
 
-                model = MusCATModel(PRIVACY_PARAMS)
+                num_clients = np.load(self.client_dir / "num_clients.npy")
+                model = MusCATModel(PRIVACY_PARAMS, num_clients)
                 model.load(self.client_dir, is_fed=True)
 
                 train_feat = np.load(self.client_dir / "train_feat.npy")
@@ -528,7 +544,28 @@ class TrainClient(fl.client.NumPyClient):
             feat_sqsum = (train_feat**2).sum(axis=0)
             feat_count = train_feat.shape[0]
 
-            ## TODO: Make DP
+            if self.priv:
+                logger.info("Add noise to feature statistics for differential privacy")
+
+                eps, delta = self.priv.feature_mean_stdev
+                eps /= 2 # Apply twice
+
+                # CoinPress algorithm for private mean estimation
+                r = 1000
+                c = [r/10] * train_feat.shape[1]
+                rho = [(1.0/4) * eps, (3.0/4) * eps]
+                t = len(rho)
+                feat_mean = multivariate_mean_iterative(train_feat.copy(), c, r, t, rho)
+
+                # Private estimation for second moment
+                r = 50000
+                c = [r/10] * train_feat.shape[1]
+                rho = [(1.0/4) * eps, (3.0/4) * eps]
+                t = len(rho)
+                feat_sqmean = multivariate_mean_iterative(train_feat**2, c, r, t, rho)
+
+                feat_sum = feat_mean * train_feat.shape[0]
+                feat_sqsum = feat_sqmean * train_feat.shape[0]
 
             data_list = [feat_sum, feat_sqsum, feat_count]
 
@@ -548,7 +585,8 @@ class TrainClient(fl.client.NumPyClient):
 
             logger.info("Load model")
 
-            model = MusCATModel(PRIVACY_PARAMS)
+            num_clients = np.load(self.client_dir / "num_clients.npy")
+            model = MusCATModel(PRIVACY_PARAMS, num_clients)
             model.load(self.client_dir, is_fed=True)
 
             logger.info("Load training features")
@@ -1183,6 +1221,7 @@ class TestClient(fl.client.NumPyClient):
 
             logger.info("Load data")
 
+            num_clients = np.load(self.client_dir / "num_clients.npy")
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path,
                                                   priv.infection_duration_max)
@@ -1204,6 +1243,8 @@ class TestClient(fl.client.NumPyClient):
                 inf_max = priv.infection_duration_max
 
                 logger.info(f"Add noise to population exposure for diff privacy: eps {eps} delta {delta}")
+
+                eps *= np.sqrt(num_clients - 1) # Amplification from secure aggregation
 
                 eloads_pop += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=np.sqrt(inf_max), shape=eloads_pop.shape)
@@ -1245,6 +1286,8 @@ class TestClient(fl.client.NumPyClient):
                 loc_max = 24.0/val_max # Maximum number of sensitive locations per person
 
                 logger.info(f"Add noise to location exposure for diff privacy: eps {eps} delta {delta}")
+
+                eps *= np.sqrt(num_clients - 1) # Amplification from secure aggregation
 
                 eloads_res += GaussianMechNoise(eps=eps, delta=delta,
                     l2_sens=val_max*np.sqrt(inf_max*loc_max),
@@ -1313,7 +1356,8 @@ class TestClient(fl.client.NumPyClient):
 
             logger.info("Load model")
 
-            model = MusCATModel(PRIVACY_PARAMS)
+            num_clients = np.load(self.client_dir / "num_clients.npy")
+            model = MusCATModel(PRIVACY_PARAMS, num_clients)
             model.load(self.client_dir, is_fed=True)
 
             logger.info("Setup local variables for featurization")
@@ -1422,7 +1466,8 @@ class TestClient(fl.client.NumPyClient):
 
         logger.info("Load model")
 
-        model = MusCATModel(PRIVACY_PARAMS)
+        num_clients = np.load(self.client_dir / "num_clients.npy")
+        model = MusCATModel(PRIVACY_PARAMS, num_clients)
         model.load(self.client_dir, is_fed=True)
 
         logger.info("Load test features and data")
