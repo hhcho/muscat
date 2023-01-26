@@ -38,7 +38,7 @@ FEAT_SCALE = 1000
 USE_SAVED_TRAIN_DATA = False
 USE_SAVED_TEST_DATA = False
 DEPLOY_FLAG = True # Suppresses writing unnecessary cache files
-                   # and forces calculation of all variables even if cache exists
+                 # and forces calculation of all variables even if cache exists
 
 PRIVACY_PARAMS = MusCATPrivacy(num_batches=NUM_BATCHES, num_epochs=NUM_ITERS/NUM_BATCHES)
 
@@ -1483,6 +1483,9 @@ class TestClient(fl.client.NumPyClient):
         test_feat /= FEAT_SCALE
         test_feat -= model.center[np.newaxis,:]
         test_feat /= model.scale[np.newaxis,:]
+
+        # Clipping
+        test_feat[:,:-model.num_days_for_pred*7] = np.maximum(-100, np.minimum(100, test_feat[:,:-model.num_days_for_pred*7]))
 
         logger.info("Make predictions")
 
