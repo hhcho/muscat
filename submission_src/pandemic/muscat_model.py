@@ -304,13 +304,18 @@ class MusCATModel:
         home_load = eloads["loc-home"]
         loc_load = eloads["loc-act"]
 
+        if id_map:
+            nperson = max(id_map.values()) + 1
+        else:
+            nperson = self.le_res_act["pid"].max() + 1
+
         I = np.zeros(len(self.le_res_act), dtype=int)
         J = self.le_res_act["pid"]
         if id_map:
             J = np.array([id_map[v] for v in J])
 
         val = home_load[self.le_res_act["lid"] - 1000000001] * self.le_res_act["duration"]/3600
-        home_feat = coo_matrix((val, (I, J))).toarray()[0]
+        home_feat = coo_matrix((val, (I, J)), shape=(1, nperson)).toarray()[0]
 
         I = self.le_other_act["activity_type"] - 2 # Ignore 1 (home)
         J = self.le_other_act["pid"]
@@ -318,7 +323,7 @@ class MusCATModel:
             J = np.array([id_map[v] for v in J])
 
         val = loc_load[self.le_other_act["lid"] - 1] * self.le_other_act["duration"]/3600
-        loc_feat = coo_matrix((val, (I, J))).toarray()
+        loc_feat = coo_matrix((val, (I, J)), shape=(6, nperson)).toarray()
 
         le_feat = np.vstack((home_feat, loc_feat))
         return le_feat
@@ -346,9 +351,10 @@ class MusCATModel:
             # deg_max = priv.contact_degrees_max
             # l2_sens = time_max * np.sqrt(deg_max * self.num_days_for_pred)
 
-            logger.info("Randomized response")
-
             flip_prob = 1.0 / (1.0 + np.exp(eps))
+
+            logger.info(f"Randomized response, {flip_prob}")
+
             to_flip = np.random.uniform(size=out.shape) < flip_prob
             out[to_flip] = 1 - out[to_flip]
 
