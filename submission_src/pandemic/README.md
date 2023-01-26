@@ -15,9 +15,9 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
   - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`, `configure_fit()`, ...) and implements MusCAT's general federated workflow.
       - `fit()` in class `TrainClient` implements the core of our model training, executed by the clients, with the computation of global statistics (**W0-W3** in *Section 3.4*) and the Poisson regression (**W4**).
-      - `aggregate_fit()` in class `TrainStrategy` defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients, as described in *Section 5 (Experimental Results → Model & Algorithmic modifications ...)*.
+      - `aggregate_fit()` in class `TrainStrategy` defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients, as described in *Section 5 (Experimental Results → Model & Algorithmic modifications ...).*
       - `fit()` and `evaluate()` in class `TestClient` implement the clients' part of the inference (**W6**)
-      - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations (*Section 5*)
+      - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations. See *Section 5 (Experimental Results → Model & Algorithmic modifications ...).*
 
   - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's federated workflow (called by [solution_federated.py](solution_federated.py)), as described in *Section 3.4*.
 
