@@ -337,7 +337,7 @@ class MusCATModel:
             eps, delta = priv.test_prediction
             eps /= self.num_days_for_pred # Distribute over days used for prediction
             delta /= self.num_days_for_pred
-            # time_max = priv.contact_duration_max / 3600
+            time_max = priv.contact_duration_max / 3600
             # deg_max = priv.contact_degrees_max
             # l2_sens = time_max * np.sqrt(deg_max * self.num_days_for_pred)
 

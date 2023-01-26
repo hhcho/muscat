@@ -1339,11 +1339,9 @@ class TestClient(fl.client.NumPyClient):
                 test_feat = model.get_test_feat(infected, Ytrain, model.num_days_for_pred,
                                                 model.impute, agg_data, id_map, priv)
 
-                if not DEPLOY_FLAG:
+                logger.info("Save test features")
 
-                    logger.info("Save test features")
-
-                    np.save(cacheFile, test_feat)
+                np.save(cacheFile, test_feat)
 
         elif round_prot == prot.COLLECTIVE_DECRYPT:
 
