@@ -42,7 +42,7 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
     specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (used during MusCAT's workflow for secure aggregation of the clients' local results by the server), as discussed in *Sections 3.4 and 5 (Experimental Results → Model & Algorithmic modifications ...)*.
 
   - [mhe/crypto.go](mhe/crypto.go) contains cryptographic utilities
-    for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python. See *Sections 3.4, 4 (Privacy Analysis → Security of MHE),* and *5.2.1 (Efficiency & Scalability → MHE Operations)* on the use of these cryptographic primitives.
+    for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python. See Section *5.2.1 (Efficiency & Scalability → MHE Operations)* on the use of these cryptographic primitives.
 
   - [mhe/protocols.go](mhe/protocols.go) provides high-level functions
     that implement disk-assisted client-server communication protocol. See *Sections 5.2.1 (Efficiency & Scalability) and 6 (Discussion and Extensions to other Data Sources and Models → Practical Optimizations)* for a discussion about efficiency of this protocol implementation.
