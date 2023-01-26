@@ -110,8 +110,8 @@ and to (re)generate `submission.zip`:
     -v "$PWD/submission_src/pandemic:/work" \
     -w /work golang:1.19 go build
 
-  # Remove any previous submission archive
-  rm -f submission/submission.zip
+  # Remove any previous submission cache
+  rm -rf submission
 
   # (Re)pack the submission code
   make pack-submission
