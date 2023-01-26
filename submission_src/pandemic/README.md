@@ -1,6 +1,6 @@
 # U.S. PETs Prize Challenge: Phase 2 (Pandemic) Code Guide
 
-## Code layout and methodology
+## Layout and methodology
 
 Our solution introduces **_MusCAT_**, a multi-scale federated system
 for privacy-preserving pandemic risk prediction. It is implemented in Python and Go.
