@@ -7,26 +7,26 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
 - Centralized solution uses Python:
 
-  - [solution_centralized.py](solution_centralized.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`) and implements MusCAT's general workflow.
+  - [solution_centralized.py](solution_centralized.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`) and implements MusCAT's general workflow, similar to the one described in *Section 3.4 (Privacy-Preserving Federated System for Individual Risk Prediction)* of our manuscript.
 
-  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's workflow (called by [solution_centralized.py](solution_centralized.py)).
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's workflow (called by [solution_centralized.py](solution_centralized.py)). See *Sections 3.4 and 5.1 (Centralized performance)* for discussions of the workflow and its benchmarks.
 
 - Federated solution uses both Python and Go. The latter is needed for cryptographic operations, and uses a [custom fork](https://github.com/hcholab/lattigo/tree/petschal) of [Lattigo](https://github.com/tuneinsight/lattigo) library for lattice-based homomorphic encryption.
 
   - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`, `configure_fit()`, ...) and implements MusCAT's general federated workflow.
-      - `fit()` in class `TrainClient` implements the core of our model training, executed by the clients, with the computation of global statistics (**W0-W3** in Section 3.4 of our manuscript) and the poisson regression (**W4**).
+      - `fit()` in class `TrainClient` implements the core of our model training, executed by the clients, with the computation of global statistics (**W0-W3** in *Section 3.4* of our manuscript) and the poisson regression (**W4**).
       - `aggregate_fit()` in class `TrainStrategy` defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients.
       - `fit()` and `evaluate()` in class `TestClient` implement the clients' part of the inference (**W6** in our manuscript)
       - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations
 
-  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's federated workflow (called by [solution_federated.py](solution_federated.py)).
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's federated workflow (called by [solution_federated.py](solution_federated.py)). See *Section 3.4* for description of the workflow.
 
-  - [muscat_privacy.py](muscat_privacy.py) contains static parameters and functions specific for Differential Privacy (DP)
+  - [muscat_privacy.py](muscat_privacy.py) contains static parameters and functions specific for Differential Privacy (DP). See *Sections 3.4, 4 (Privacy Analysis → Differential Privacy. Training), 5 (Experimental Results → Differentially Private Training),* and *5.2 (Federated Performance → Privacy)* of the manuscript for a discussion of DP, its implementation and performance.
 
   - [muscat_workflow.py](muscat_workflow.py) contains static parameters for
-    the secure and plaintext training and testing workflows. It notably defines the training parameters and the order of the rounds to train a model.
+    the secure and plaintext training and testing workflows. It notably defines the training parameters and the order of the rounds to train a model. See *Section 3.4* for the workflow.
 
-  - [dpmean.py](dpmean.py) provides `multivariate_mean_iterative()` function that implements CoinPress algorithm for private mean estimation (called by [solution_federated.py](solution_federated.py)). See section 5.2 (Federated Performance -> Privacy) in our manuscript.
+  - [dpmean.py](dpmean.py) provides `multivariate_mean_iterative()` that implements CoinPress algorithm for private mean estimation (called by [solution_federated.py](solution_federated.py)). See *section 5.2* *(Federated Performance → Privacy)* in our manuscript.
 
   - [mhe_routines.go](mhe_routines.go) represents the Go entrypoint that
     parses command-line arguments passed to it from Python, and executes
@@ -39,18 +39,17 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
     where `<command>` designates a step in the workflow,
     and `<arg1> [<arg2> ...]` represents various arguments, which
-    specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (defined in multiple operations for the clients and for the server).
+    specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (defined in multiple operations for the clients and for the server). See *Sections 3.4 and 5 (Experimental Results → Model & Algorithmic modifications ...)* for discussion.
 
   - [mhe/crypto.go](mhe/crypto.go) contains cryptographic utilities
-    for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions
-    to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python.
+    for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python. See *Sections 3.4, 4 (Privacy Analysis → Security of MHE),* and *5.2.1 (Efficiency & Scalability → MHE Operations)* of the manuscript on the use of these cryptographic primitives.
 
   - [mhe/protocols.go](mhe/protocols.go) provides high-level functions
-    that implement disk-assisted client-server communication protocol
+    that implement disk-assisted client-server communication protocol. See *Sections 5.2.1 (Efficiency & Scalability) and 6 (Discussion and Extensions to other Data Sources and Models -> Practical Optimizations)* for a discussion about efficiency of this protocol implementation.
 
   - [mhe/utilities.go](mhe/utilities.go) contains auxiliary utilities,
     including functions to (de)serialize data vectors and matrices
-    from/to disk, in order to pass them from/to Python
+    from/to disk, in order to pass them from/to Python. See *Sections 5.2.1 and 6* for relevant discussions.
 
   - [go.mod](go.mod) and [go.sum](go.sum) configure third-party Go
     dependencies.
