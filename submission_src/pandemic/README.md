@@ -81,21 +81,11 @@ and to (re)generate `submission.zip`:
   git clone https://github.com/drivendataorg/pets-prize-challenge-runtime .
   ```
 
-- Download the `va-*` data files into `data/pandemic/{centralized,federated}/{test,train}/` directories
+- Download and partition the `va-*` data files as described in
+  the `pandemic-partitioning-example.ipynb` notebook
+  on the [Data Download page](https://www.drivendata.org/competitions/103/nist-federated-learning-2-pandemic-forecasting-federated/data/).
 
-  - one can avoid data duplication by creating hard links to the associated files, e.g.
-    ```sh
-    ls /path/to/downloaded/data/*.{gz,csv} | while read f ; do
-      for p in "centralized/test" "centralized/train" \
-            "scenario01/test/client01" "scenario01/train/client01" \
-            "scenario01/test/client02" "scenario01/train/client02" \
-            "scenario01/test/client03" "scenario01/train/client03" ; do
-        sudo ln -f "$f" "data/pandemic/$p/$(basename $f)"
-      done
-    done
-    ```
-
-- Build and run test submission:
+- Build and test a submission:
 
   ```sh
   # Download the official challenge Docker image
