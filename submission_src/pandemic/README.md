@@ -7,24 +7,21 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
 - Centralized solution uses Python:
 
-  - [solution_centralized.py](solution_centralized.py) represents the entrypoint to the solution
+  - [solution_centralized.py](solution_centralized.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., fit()) and implements MusCat's general workflow.
 
-  - [muscat_model.py](muscat_model.py) constructs the MusCAT model
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCat's workflow (called by solution_centralize.py). 
 
-- Federated solution uses both Python and Go. The latter is needed for
-  performance optimization, and uses a custom fork of
-  [tuneinsight/lattigo](https://github.com/tuneinsight/lattigo)
-  library for lattice-based homomorphic encryption.
+- Federated solution uses both Python and Go. The latter is needed for cryptographic operations, and uses a custom fork of [tuneinsight/lattigo](https://github.com/tuneinsight/lattigo) library for lattice-based homomorphic encryption.
 
-  - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution
+  - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., fit(), configure_fit()...) and implements MusCat's general federated workflow.
 
-  - [muscat_model.py](muscat_model.py) constructs the MusCAT model
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCat's federated workflow (called by solution_federated.py).
 
-  - [muscat_privacy.py](muscat_privacy.py) contains static parameters for
-    Differentional Privacy (DP)
+  - [muscat_privacy.py](muscat_privacy.py) contains static parameters and functions specific for
+    Differential Privacy (DP)
 
   - [muscat_workflow.py](muscat_workflow.py) contains static parameters for
-    the secure and plaintext training and testing workflows
+    the secure and plaintext training and testing workflows. It notably defines the training parameters and the order of the rounds to train a model. 
 
   - [mhe_routines.go](mhe_routines.go) represents the Go entrypoint that
     parses command-line arguments passed to it from Python, and executes
@@ -37,11 +34,11 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
     where `<command>` designates a step in the workflow,
     and `<arg1> [<arg2> ...]` represents various parameters, which
-    specify either path(s) to the data directory(s), or numeric parameters.
+    specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (defined in multiple operations for the clients and for the server).
 
   - [mhe/crypto.go](mhe/crypto.go) contains cryptographic utilities
-    for Multiparty Homomorphic Encryption (MHE), along with some functions
-    to handle disk I/O, which is needed for passing data from/to Python.
+    for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions
+    to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python.
 
   - [mhe/protocols.go](mhe/protocols.go) provides high-level functions
     that implement disk-assisted client-server communication protocol
