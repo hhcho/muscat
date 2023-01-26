@@ -11,13 +11,13 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
   - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's workflow (called by [solution_centralized.py](solution_centralized.py)). See *Sections 3.4 and 5.1 (Centralized performance)* for discussions of the workflow and its benchmarks.
 
-- Federated solution uses both Python and Go. The latter is needed for cryptographic operations, and uses a [custom fork](https://github.com/hcholab/lattigo/tree/petschal) of [Lattigo](https://github.com/tuneinsight/lattigo) library for lattice-based homomorphic encryption.
+- Federated solution uses both Python and Go. The latter is needed for cryptographic operations, and uses a [custom fork](https://github.com/hcholab/lattigo/tree/petschal) of [Lattigo](https://github.com/tuneinsight/lattigo) library for lattice-based homomorphic encryption, as discussed in *Section 5.2 (Federated Performance -> Implementation Details)*.
 
   - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`, `configure_fit()`, ...) and implements MusCAT's general federated workflow.
-      - `fit()` in class `TrainClient` implements the core of our model training, executed by the clients, with the computation of global statistics (**W0-W3** in *Section 3.4* of our manuscript) and the Poisson regression (**W4**).
+      - `fit()` in class `TrainClient` implements the core of our model training, executed by the clients, with the computation of global statistics (**W0-W3** in *Section 3.4*) and the Poisson regression (**W4**).
       - `aggregate_fit()` in class `TrainStrategy` defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients, as described in *Section 5 (Experimental Results → Model & Algorithmic modifications ...)*.
       - `fit()` and `evaluate()` in class `TestClient` implement the clients' part of the inference (**W6** in our manuscript)
-      - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations
+      - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations (*Section 5*)
 
   - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's federated workflow (called by [solution_federated.py](solution_federated.py)), as described in *Section 3.4*.
 
@@ -39,7 +39,7 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
     where `<command>` designates a step in the workflow,
     and `<arg1> [<arg2> ...]` represents various arguments, which
-    specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (defined in multiple operations for the clients and for the server), as discussed in *Sections 3.4 and 5 (Experimental Results → Model & Algorithmic modifications ...)*.
+    specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (defined in multiple operations for the clients and for the server), as discussed in *Sections 3.4 and 5*.
 
   - [mhe/crypto.go](mhe/crypto.go) contains cryptographic utilities
     for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python. See *Sections 3.4, 4 (Privacy Analysis → Security of MHE),* and *5.2.1 (Efficiency & Scalability → MHE Operations)* on the use of these cryptographic primitives.
