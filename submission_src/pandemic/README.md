@@ -110,7 +110,8 @@ and to (re)generate `submission.zip`:
     -v "$PWD/submission_src/pandemic:/work" \
     -w /work golang:1.19 go build
 
-  # Remove any previous submission cache
+  # Remove any previous submission cache. Before its deletion, you may want to copy off log.txt
+  # and any other results from a previous run.
   rm -rf submission
 
   # (Re)pack the submission code
