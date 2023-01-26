@@ -15,13 +15,13 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
   - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`, `configure_fit()`, ...) and implements MusCAT's general federated workflow.
       - `fit()` in class `TrainClient` implements the core of our model training, executed by the clients, with the computation of global statistics (**W0-W3** in *Section 3.4*) and the Poisson regression (**W4**).
-      - `aggregate_fit()` in class `TrainStrategy` defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients, as described in *Section 5 (Experimental Results → Model & Algorithmic modifications ...).*
+      - `aggregate_fit()` in class `TrainStrategy` defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients, as described in *Section 5 (Experimental Results).*
       - `fit()` and `evaluate()` in class `TestClient` implement the clients' part of the inference (**W6**)
-      - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations. See *Section 5 (Experimental Results → Model & Algorithmic modifications ...).*
+      - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations. See *Section 5.*
 
   - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCAT's federated workflow (called by [solution_federated.py](solution_federated.py)), as described in *Section 3.4*.
 
-  - [muscat_privacy.py](muscat_privacy.py) contains static parameters and functions specific for Differential Privacy (DP). See *Sections 3.4, 4 (Privacy Analysis → Differential Privacy. Training), 5 (Experimental Results → Differentially Private Training),* and *5.2 (Federated Performance → Privacy)* for a discussion of DP, its implementation and performance.
+  - [muscat_privacy.py](muscat_privacy.py) contains static parameters and functions specific for Differential Privacy (DP). See *Sections 3.4, 4 (Privacy Analysis → DP Training),* and *5.2 (Federated Performance → Privacy)* for a discussion of DP, its implementation and performance.
 
   - [dpmean.py](dpmean.py) provides `multivariate_mean_iterative()` that implements CoinPress algorithm for private mean estimation (called by [solution_federated.py](solution_federated.py)), as described in *section 5.2* *(Federated Performance → Privacy)*.
 
@@ -39,17 +39,17 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
     where `<command>` designates a step in the workflow,
     and `<arg1> [<arg2> ...]` represents various arguments, which
-    specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (used during MusCAT's workflow for secure aggregation of the clients' local results by the server), as discussed in *Sections 3.4 and 5 (Experimental Results → Model & Algorithmic modifications ...)*.
+    specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (used during MusCAT's workflow for secure aggregation of the clients' local results by the server), as discussed in *Sections 3.4 and 5*.
 
   - [mhe/crypto.go](mhe/crypto.go) contains cryptographic utilities
     for Multiparty Homomorphic Encryption (MHE, e.g., vectors encryption and decryption), along with some functions to handle disk I/O (e.g., to save and read cryptographic parameters and keys), which is needed for passing data from/to Python. See Section *5.2.1 (Efficiency & Scalability → MHE Operations)* on the use of these cryptographic primitives.
 
   - [mhe/protocols.go](mhe/protocols.go) provides high-level functions
-    that implement disk-assisted client-server communication protocol. See *Sections 5.2.1 (Efficiency & Scalability) for this protocol implementation.
+    that implement disk-assisted client-server communication protocol. See *Section 5.2.1 (Efficiency & Scalability)* for this protocol implementation.
 
   - [mhe/utilities.go](mhe/utilities.go) contains auxiliary utilities,
     including functions to (de)serialize data vectors and matrices
-    from/to disk, in order to pass them from/to Python. See *Sections 5.2.1 and 6* for relevant discussions.
+    from/to disk, in order to pass them from/to Python. See *Section 5.2.1* for relevant discussions.
 
   - [go.mod](go.mod) and [go.sum](go.sum) configure third-party Go
     dependencies.
