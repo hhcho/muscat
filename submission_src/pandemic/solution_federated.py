@@ -36,7 +36,7 @@ ACT_LOC_STEP_SIZE = 5
 FEAT_SCALE = 1000
 USE_SAVED_TRAIN_DATA = False
 USE_SAVED_TEST_DATA = False
-DEPLOY_FLAG = True # Suppresses writing unnecessary cache files
+DEPLOY_FLAG = False # Suppresses writing unnecessary cache files
                    # and forces calculation of all variables even if cache exists
 
 PRIVACY_PARAMS = MusCATPrivacy(num_batches=NUM_BATCHES, num_epochs=NUM_ITERS/NUM_BATCHES)
@@ -44,9 +44,9 @@ PRIVACY_PARAMS = MusCATPrivacy(num_batches=NUM_BATCHES, num_epochs=NUM_ITERS/NUM
 # TRAIN_ROUNDS = workflow.PLAIN_TRAIN_ROUNDS(NUM_ITERS)
 # TEST_ROUNDS = workflow.PLAIN_TEST_ROUNDS
 
-TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
+# TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS(NUM_ITERS)
 # TRAIN_ROUNDS = workflow.SECURE_TRAIN_ROUNDS_CACHED_DATA(NUM_ITERS)
-# TRAIN_ROUNDS = workflow.EMPTY
+TRAIN_ROUNDS = workflow.EMPTY
 TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 
 # TRAIN_ROUNDS = workflow.DEBUG_ROUNDS

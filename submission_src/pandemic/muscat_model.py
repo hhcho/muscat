@@ -96,7 +96,7 @@ class MusCATModel:
 
         return np.array(symptom_cnt), np.array(recov_cnt)
 
-    def compute_exposure_loads(self, beliefs, agg_data=None, day=None):
+    def compute_exposure_loads(self, beliefs, agg_data=None, day=None, id_map=None):
         eloads = dict()
 
         if agg_data:
@@ -106,12 +106,20 @@ class MusCATModel:
         else:
             eloads["pop"] = beliefs.sum()
 
-            val = beliefs[self.le_res_act["pid"]] * self.le_res_act["duration"]/3600
+            pids = self.le_res_act["pid"]
+            if id_map:
+                pids = np.array([id_map[v] for v in pids])
+
+            val = beliefs[pids] * self.le_res_act["duration"]/3600
             I = np.zeros(len(self.le_res_act), dtype=int)
             J = self.le_res_act["lid"] - 1000000001
             eloads["loc-home"] = coo_matrix((val, (I, J))).toarray()[0]
 
-            val = beliefs[self.le_other_act["pid"]] * self.le_other_act["duration"]/3600
+            pids = self.le_other_act["pid"]
+            if id_map:
+                pids = np.array([id_map[v] for v in pids])
+
+            val = beliefs[pids] * self.le_other_act["duration"]/3600
             I = np.zeros(len(self.le_other_act), dtype=int)
             J = self.le_other_act["lid"] - 1
             eloads["loc-act"] = coo_matrix((val, (I, J))).toarray()[0]
@@ -327,6 +335,8 @@ class MusCATModel:
             logger.info("Adding noise to contact feat for inference")
 
             eps, delta = priv.test_prediction
+            eps /= self.num_days_for_pred # Distribute over days used for prediction
+            delta /= self.num_days_for_pred
             # time_max = priv.contact_duration_max / 3600
             # deg_max = priv.contact_degrees_max
             # l2_sens = time_max * np.sqrt(deg_max * self.num_days_for_pred)
@@ -337,12 +347,12 @@ class MusCATModel:
             to_flip = np.random.uniform(size=out.shape) < flip_prob
             out[to_flip] = 1 - out[to_flip]
 
-            # logger.info("Clamp duration values")
+            logger.info("Clamp duration values")
 
-            # to_clip = A_data > time_max
-            # scaling = time_max / A_data[to_clip]
-            # A_data[to_clip] = time_max
-            # A_data_act[:,to_clip] *= scaling[np.newaxis,:]
+            to_clip = A_data > time_max
+            scaling = time_max / A_data[to_clip]
+            A_data[to_clip] = time_max
+            A_data_act[:,to_clip] *= scaling[np.newaxis,:]
 
             # logger.info("Norm clipping")
             # norm_max = priv.contact_norm_max                
@@ -376,7 +386,7 @@ class MusCATModel:
             beliefs = beliefs[np.newaxis,:]
         ndays = beliefs.shape[0]
 
-        eloads = self.compute_exposure_loads(beliefs[-1], agg_data, day)
+        eloads = self.compute_exposure_loads(beliefs[-1], agg_data, day, id_map=id_map)
 
         pe_feat = self.eloads_to_pop_feat(eloads)
         le_feat = self.eloads_to_loc_feat(eloads, id_map)
