@@ -26,6 +26,8 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
   - [muscat_workflow.py](muscat_workflow.py) contains static parameters for
     the secure and plaintext training and testing workflows. It notably defines the training parameters and the order of the rounds to train a model.
 
+  - [dpmean.py](dpmean.py) provides `multivariate_mean_iterative()` function that implements CoinPress algorithm for private mean estimation (called by [solution_federated.py](solution_federated.py)). See section 5.2 (Federated Performance -> Privacy) in our manuscript.
+
   - [mhe_routines.go](mhe_routines.go) represents the Go entrypoint that
     parses command-line arguments passed to it from Python, and executes
     a computation corresponding to its step in the Python workflow.
