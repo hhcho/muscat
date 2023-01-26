@@ -118,8 +118,8 @@ class MusCATModel:
 
         return eloads
 
-    def fit(self, Ytrain, id_map=None, num_days_for_pred=2, impute=True, neg_to_pos_ratio=3, batch_size=1000,
-            num_epochs=15, use_adam=True, learn_rate=0.005):
+    def fit(self, Ytrain, num_days_for_pred=2, impute=True, neg_to_pos_ratio=3, batch_size=1000,
+            num_epochs=15, use_adam=True, learn_rate=0.005, id_map=None):
 
         self.num_days_for_pred = num_days_for_pred
         self.impute = impute
@@ -327,16 +327,22 @@ class MusCATModel:
             logger.info("Adding noise to contact feat for inference")
 
             eps, delta = priv.test_prediction
-            time_max = priv.contact_duration_max / 3600
-            deg_max = priv.contact_degrees_max
-            l2_sens = time_max * np.sqrt(deg_max * self.num_days_for_pred)
+            # time_max = priv.contact_duration_max / 3600
+            # deg_max = priv.contact_degrees_max
+            # l2_sens = time_max * np.sqrt(deg_max * self.num_days_for_pred)
 
-            logger.info("Clamp duration values")
+            logger.info("Randomized response")
 
-            to_clip = A_data > time_max
-            scaling = time_max / A_data[to_clip]
-            A_data[to_clip] = time_max
-            A_data_act[:,to_clip] *= scaling[np.newaxis,:]
+            flip_prob = 1.0 / (1.0 + np.exp(eps))
+            to_flip = np.random.uniform(size=out.shape) < flip_prob
+            out[to_flip] = 1 - out[to_flip]
+
+            # logger.info("Clamp duration values")
+
+            # to_clip = A_data > time_max
+            # scaling = time_max / A_data[to_clip]
+            # A_data[to_clip] = time_max
+            # A_data_act[:,to_clip] *= scaling[np.newaxis,:]
 
             # logger.info("Norm clipping")
             # norm_max = priv.contact_norm_max                
@@ -348,8 +354,8 @@ class MusCATModel:
             out = A @ out
             del A
 
-            if i == 0 and (not is_training) and priv:
-                out += GaussianMechNoise(eps=eps, delta=delta, l2_sens=l2_sens, shape=out.shape)
+            # if i == 0 and (not is_training) and priv:
+            #     out += GaussianMechNoise(eps=eps, delta=delta, l2_sens=l2_sens, shape=out.shape)
 
         res = [None] * A_data_act.shape[0]
 
@@ -360,8 +366,8 @@ class MusCATModel:
 
         res = np.vstack(res)
             
-        if ndays == 1 and (not is_training) and priv: # if ndays is 1, need to add noise here instead
-            res += GaussianMechNoise(eps=eps, delta=delta, l2_sens=l2_sens, shape=res.shape)
+        # if ndays == 1 and (not is_training) and priv: # if ndays is 1, need to add noise here instead
+        #     res += GaussianMechNoise(eps=eps, delta=delta, l2_sens=l2_sens, shape=res.shape)
 
         return res
 

@@ -16,13 +16,13 @@ class MusCATPrivacy:
         # For differential privacy
         # (eps, delta) budget for each component 
         self.disease_progression = [0.1, 1e-7]
-        self.symptom_development = [0.1, 1e-7]
-        self.exposure_load_population = [0.1, 1e-7]
-        self.exposure_load_location = [1, 1e-7]
-        self.feature_mean_stdev = [0.1, 1e-7]
-        self.model_training_sgd = privacy_amplification_via_shuffling(5, 1e-7, N=1e6, 
+        self.symptom_development = [0.05, 1e-7]
+        self.exposure_load_population = [0.05, 1e-7]
+        self.exposure_load_location = [0.4, 1e-7]
+        self.feature_mean_stdev = [0.4, 1e-7]
+        self.model_training_sgd = privacy_amplification_via_shuffling(1, 1e-7, N=1e6, 
             BSIZE=1e6/num_batches, N_EPOCHS=num_epochs, max_norm=self.sgd_grad_norm_max)
-        self.test_prediction = [5, 0]
+        self.test_prediction = [8, 0]
 
 # Given epsilon delta for the entire training process (all epochs),
 # compute the per batch noise level based on privacy amplification
