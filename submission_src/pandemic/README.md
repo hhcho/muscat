@@ -88,6 +88,9 @@ and to (re)generate `submission.zip`:
 - Build and test a submission:
 
   ```sh
+  # (For the Red Team) Unpack submission.zip
+  unzip /path/to/submission.zip -d submission_src/pandemic/
+
   # Download the official challenge Docker image
   make pull
 
