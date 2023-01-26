@@ -8,7 +8,7 @@ import scipy as sp
 import torch
 import torch.nn as nn
 from loguru import logger
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix, csr_matrix
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -100,7 +100,7 @@ class MusCATModel:
         eloads = dict()
 
         if agg_data:
-            eloads["pop"] = agg_data["eloads_pop"].ravel()[day]
+            eloads["pop"] = np.ravel(agg_data["eloads_pop"])[day]
             eloads["loc-home"] = agg_data["eloads_res"][day]
             eloads["loc-act"] = agg_data["eloads_actloc"][day]
         else:
@@ -118,7 +118,7 @@ class MusCATModel:
 
         return eloads
 
-    def fit(self, Ytrain, num_days_for_pred=2, impute=True, neg_to_pos_ratio=3, batch_size=1000,
+    def fit(self, Ytrain, id_map=None, num_days_for_pred=2, impute=True, neg_to_pos_ratio=3, batch_size=1000,
             num_epochs=15, use_adam=True, learn_rate=0.005):
 
         self.num_days_for_pred = num_days_for_pred
@@ -131,13 +131,13 @@ class MusCATModel:
         beliefs = (Ytrain == 1).transpose()
 
         self.train_feat, self.train_label = self.get_train_feat_all_days(beliefs, Ytrain,
-            num_days_for_pred, impute, neg_to_pos_ratio)
+            num_days_for_pred, impute, neg_to_pos_ratio, id_map=id_map)
 
         self.fit_disease_transmission(self.train_feat, self.train_label, batch_size, num_epochs,
             use_adam, learn_rate)
 
 
-    def setup_features(self, person, actassign, popnet, id_map=None, cache_dir=None):
+    def setup_features(self, person, actassign, popnet, id_map=None, cache_dir=None, is_deploy=False):
         if id_map:
             person = person.sort_values(by=["pid"])
 
@@ -179,73 +179,110 @@ class MusCATModel:
         self.pe_base_feat = pe_base_feat
 
         if cache_dir:
-            cacheFiles = [ (cache_dir / ("contact_graph.%d.npz" % i)) for i in np.arange(8) ]
 
-        if cache_dir and np.all(np.array([f.exists() for f in cacheFiles], dtype=bool)):
+            cacheFile = cache_dir / "contact_graphs.npz"
+
+        if (not is_deploy) and cache_dir and cacheFile.exists():
 
             logger.info("Loading cached contact graphs")
 
-            arr = [sp.sparse.load_npz(f) for f in cacheFiles]
-            ce_A_combined = arr[0]
-            ce_A_list = arr[1:]
+            data = np.load(cacheFile)
+
+            A_data = data["A_data"]
+            A_data_act = data["A_data_act"]
+            A_indptr = data["A_indptr"]
+            A_indices = data["A_indices"]
+            A_data_pruned = data["A_data_pruned"]
+            A_data_act_pruned = data["A_data_act_pruned"]
 
         else:
 
+            logger.info(f"Building contact graphs")
+
             # Ignore contacts shorter than 30 mins
-            popnet_30m = popnet.loc[popnet["duration"] > 60*30] 
-            
-            # Build contact network adjacency for each type (edges weighted by duration)
-            ce_A_list = [None] * 7
-            for atype in range(1,8):
-                popnet_30m_act = popnet_30m.loc[popnet_30m["activity1"] == atype]
-                val = popnet_30m_act["duration"] / 3600 # In units of 1 hour blocks
-                I = popnet_30m_act["pid1"]
-                J = popnet_30m_act["pid2"]
+            popnet_30m = popnet.loc[popnet["duration"] > 60*30]
+            popnet_30m = popnet_30m.loc[popnet_30m["activity1"] > 0]
+            popnet_30m = popnet_30m.loc[popnet_30m["activity2"] > 0]
 
-                if id_map:
-                    I = np.array([id_map[v] for v in I])
-                    J = np.array([id_map[v] for v in J])
+            I = np.array(popnet_30m["pid1"])
+            J = np.array(popnet_30m["pid2"])
 
-                A1 = coo_matrix((val.astype(float), (I,J)), shape=(len(person),len(person))) 
+            if id_map:
+                I = np.array([id_map[v] for v in I])
+                J = np.array([id_map[v] for v in J])
 
-                popnet_30m_act = popnet_30m.loc[popnet_30m["activity2"] == atype]
-                val = popnet_30m_act["duration"] / 3600 # In units of 1 hour blocks
-                I = popnet_30m_act["pid1"]
-                J = popnet_30m_act["pid2"]
+            nperson = max(I.max(), J.max()) + 1
 
-                if id_map:
-                    I = np.array([id_map[v] for v in I])
-                    J = np.array([id_map[v] for v in J])
+            I2 = np.hstack([I, J])
+            J2 = np.hstack([J, I])
+            del I, J
 
-                A2 = coo_matrix((val.astype(float), (I,J)), shape=(len(person),len(person))) 
+            IJ = nperson * I2 + J2
+            all_cols = np.unique(IJ)
 
-                A = (A1 + A2) / 2
-                A = (A.transpose() + A) / 2 # Symmetrize
-                ce_A_list[atype-1] = A
+            logger.info(f"Flatten indices")
 
-                logger.info(f"Contact graph for activity type {atype} processed")
+            map_compact = {v:i for i,v in enumerate(all_cols)}
+            IJ_compact = np.array([map_compact[i] for i in IJ])
+            del map_compact, IJ
+                
+            D = np.array(popnet_30m["duration"], dtype=np.float32) / 3600
+            A1 = np.array(popnet_30m["activity1"]) - 1
+            A2 = np.array(popnet_30m["activity2"]) - 1
+            del popnet_30m
 
-            ce_A_combined = ce_A_list[0]
-            for b in ce_A_list[1:]:
-                ce_A_combined += b
+            D = np.hstack([D, D])
+            A1 = np.hstack([A1, A1])
+            A2 = np.hstack([A2, A2])
+
+            logger.info(f"Initialize CSR matrix")
+
+            m0 = csr_matrix((np.zeros(len(all_cols)*7, dtype=np.float32), np.tile(all_cols, 7), np.arange(0, len(all_cols)*8, step=len(all_cols))), shape=(7, nperson**2))
+
+            logger.info(f"Process activity1")
+
+            m0.data[A1*len(all_cols) + IJ_compact] += D
+
+            logger.info(f"Process activity2")
+
+            m0.data[A2*len(all_cols) + IJ_compact] += D
+
+            logger.info(f"Extract CSR matrices")
+
+            A_data_act = m0.data.copy().reshape((7, -1)) / 4
+            A_data = A_data_act.sum(axis=0) / 4
+            del m0, IJ_compact, D, A1, A2
+
+            A = csr_matrix((np.ones(len(I2), dtype=np.int8), (I2, J2)), shape=(nperson, nperson))
+            A_indptr = A.indptr
+            A_indices = A.indices
+            del I2, J2, A
+
+            logger.info(f"A_data: {A_data.shape}")
+            logger.info(f"A_data_act: {A_data_act.shape}")
+            logger.info(f"A_indptr: {A_indptr.shape}")
+            logger.info(f"A_indices: {A_indices.shape}")
 
             if self.priv:
-                ce_A_combined, ce_A_list = PruneGraph(ce_A_combined, ce_A_list, self.priv.contact_degrees_max)
+                logger.info(f"Prune graph (for differential privacy)")
+                A_data_pruned, A_data_act_pruned = PruneGraph(A_data, A_data_act, A_indptr, A_indices, 
+                                                              self.priv.contact_degrees_max)
+            else:
+                A_data_pruned = None
+                A_data_act_pruned = None
 
-            logger.info("Convert to CSR sparse matrix format")
+            if cache_dir:
+                logger.info("Caching contact graphs")
+                np.savez(str(cacheFile), A_data=A_data, A_data_act=A_data_act, A_indptr=A_indptr, 
+                         A_indices=A_indices, A_data_pruned=A_data_pruned, A_data_act_pruned=A_data_act_pruned)
 
-            ce_A_list = [A.tocsr() for A in ce_A_list]
-            ce_A_combined = ce_A_combined.tocsr()
-
-            logger.info("Caching contact graphs")
-
-            arr = [ce_A_combined] + ce_A_list
-            for idx, A in enumerate(arr):
-                sp.sparse.save_npz(cacheFiles[idx], A)
-
-        self.ce_A_list = ce_A_list
-        self.ce_A_combined = ce_A_combined
-
+        self.A_data = A_data
+        self.A_data_act = A_data_act
+        self.A_indptr = A_indptr
+        self.A_indices = A_indices
+        self.A_data_pruned = A_data_pruned
+        self.A_data_act_pruned = A_data_act_pruned
+        
     def eloads_to_pop_feat(self, eloads):
         pe = eloads["pop"] * self.pe_base_feat
         return pe
@@ -273,45 +310,62 @@ class MusCATModel:
         le_feat = np.vstack((home_feat, loc_feat))
         return le_feat
 
-    def compute_contact_feat(self, beliefs, ndays=1, priv=None):
+    def compute_contact_feat(self, beliefs, ndays=1, priv=None, is_training=False):
         out = beliefs.copy().ravel()
 
-        for i in range(ndays-1):
+        if is_training and priv: # For DP-SGD, use pruned graphs
+            A_data = self.A_data_pruned.copy()
+            A_data_act = self.A_data_act_pruned.copy()
+        else:
+            A_data = self.A_data.copy()
+            A_data_act = self.A_data_act.copy()
 
-            if i == 0 and priv:
-                logger.info("Adding noise to contact feat for inference stage")
-
-                eps, delta = priv.test_prediction
-                time_max = priv.contact_duration_max / 3600
-                deg_max = priv.contact_degrees_max
-
-                A_clamped = self.ce_A_combined.copy()
-                A_clamped.data = np.minimum(A_clamped.data, time_max)
-
-                out = A_clamped @ out
-
-                out += GaussianMechNoise(eps=eps, delta=delta,
-                    l2_sens=time_max * np.sqrt(deg_max * self.num_days_for_pred),
-                    shape=out.shape)
-
-            else:
-                out = self.ce_A_combined @ out
-
-        res = np.vstack([self.ce_A_list[atype] @ out for atype in range(len(self.ce_A_list))])
+        graph_n = len(self.A_indptr) - 1
         
-        if ndays == 1 and priv: # if ndays is 1, need to add noise here instead
+        if (not is_training) and priv: # For inference only, add noise to contact features
+
+            logger.info("Adding noise to contact feat for inference")
 
             eps, delta = priv.test_prediction
             time_max = priv.contact_duration_max / 3600
             deg_max = priv.contact_degrees_max
+            l2_sens = time_max * np.sqrt(deg_max * self.num_days_for_pred)
 
-            res += GaussianMechNoise(eps=eps, delta=delta,
-                l2_sens=time_max * np.sqrt(deg_max * self.num_days_for_pred),
-                shape=res.shape)
+            logger.info("Clamp duration values")
+
+            to_clip = A_data > time_max
+            scaling = time_max / A_data[to_clip]
+            A_data[to_clip] = time_max
+            A_data_act[:,to_clip] *= scaling[np.newaxis,:]
+
+            # logger.info("Norm clipping")
+            # norm_max = priv.contact_norm_max                
+            # NormClipGraphInPlace(A_clamped, norm_max)
+
+        for i in range(ndays-1):
+
+            A = csr_matrix((A_data, self.A_indices, self.A_indptr), shape=(graph_n, graph_n))
+            out = A @ out
+            del A
+
+            if i == 0 and (not is_training) and priv:
+                out += GaussianMechNoise(eps=eps, delta=delta, l2_sens=l2_sens, shape=out.shape)
+
+        res = [None] * A_data_act.shape[0]
+
+        for atype in range(len(res)):
+            A = csr_matrix((A_data_act[atype,:], self.A_indices, self.A_indptr), shape=(graph_n, graph_n))
+            res[atype] = A @ out
+            del A
+
+        res = np.vstack(res)
+            
+        if ndays == 1 and (not is_training) and priv: # if ndays is 1, need to add noise here instead
+            res += GaussianMechNoise(eps=eps, delta=delta, l2_sens=l2_sens, shape=res.shape)
 
         return res
 
-    def beliefs_to_all_features(self, beliefs, agg_data=None, day=None, id_map=None, priv=None):
+    def beliefs_to_all_features(self, beliefs, agg_data=None, day=None, id_map=None, priv=None, is_training=False):
         if len(beliefs.shape) == 1:
             beliefs = beliefs[np.newaxis,:]
         ndays = beliefs.shape[0]
@@ -320,15 +374,15 @@ class MusCATModel:
 
         pe_feat = self.eloads_to_pop_feat(eloads)
         le_feat = self.eloads_to_loc_feat(eloads, id_map)
-        ce_feat = np.vstack([self.compute_contact_feat(beliefs[-1-d], d+1, priv=priv) for d in range(ndays)])
+        ce_feat = np.vstack([self.compute_contact_feat(beliefs[-1-d], d+1, priv=priv, is_training=is_training) for d in range(ndays)])
         
         return np.vstack((pe_feat,le_feat,ce_feat))
 
-    def predict(self, Ytrain):
+    def predict(self, Ytrain, id_map=None):
 
         beliefs = (Ytrain == 1).transpose()
 
-        test_feat = self.get_test_feat(beliefs, Ytrain, self.num_days_for_pred, self.impute)
+        test_feat = self.get_test_feat(beliefs, Ytrain, self.num_days_for_pred, self.impute, id_map=id_map)
 
         test_feat = self.scaler.transform(test_feat)
 
@@ -346,13 +400,14 @@ class MusCATModel:
                 asym = (Ytrain[:,d_idx] == 0) & (Ytrain[:,d_idx+1] == 2) # recovered on day d_idx+1
                 beliefs_updated[:d2+1,asym.ravel()] = self.prob_delta_cumul[-d2-1:][:,np.newaxis]
 
-        test_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, 0, id_map, priv=priv).transpose().astype(np.float32)
+        test_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, 0, id_map, priv=priv, is_training=False).transpose().astype(np.float32)
 
         return test_feat
 
     # Given the beliefs for all training days
     # sample training instances and construct features
-    def get_train_feat_all_days(self, beliefs, Ytrain, ndays_for_feat=1, impute=False, neg_to_pos_ratio=3, agg_data=None, id_map=None):
+    def get_train_feat_all_days(self, beliefs, Ytrain, ndays_for_feat=1, impute=False, 
+                                neg_to_pos_ratio=3, agg_data=None, id_map=None):
         days = Ytrain.shape[1]
 
         # Function to process each day d in parallel
@@ -377,7 +432,7 @@ class MusCATModel:
                     beliefs_updated[:d2+1,asym.ravel()] = self.prob_delta_cumul[-d2-1:][:,np.newaxis]
 
             # Construct features from previous beliefs
-            all_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, d-1, id_map)
+            all_feat = self.beliefs_to_all_features(beliefs_updated, agg_data, d-1, id_map, priv=self.priv, is_training=True)
 
             # Positive cases
             pos_feat = all_feat[:,np.where(pos)[0]]
@@ -513,7 +568,8 @@ class MusCATModel:
 
         z = (self.weights[0] + feat @ self.weights[1:]).ravel()
 
-        clamp_thres = -np.log(0.95)
+        # Baseline rate of infection
+        clamp_thres = -np.log(0.95) 
         clamp = z < clamp_thres
         z[clamp] = clamp_thres
 
@@ -527,19 +583,24 @@ class MusCATModel:
 
             eps, delta = self.priv.model_training_sgd
             norm_thres = self.priv.sgd_grad_norm_max
+            max_degree = self.priv.contact_degrees_max
+            num_hops = self.num_days_for_pred
+            group_size = max_degree ** num_hops + 1 # Max number of gradient terms
+                                                    # affected by one individual
 
             logger.info(f"Add noise to gradients for diff privacy: eps {eps} delta {delta}")
 
             gradient_norm = np.sqrt((grad ** 2).sum(axis=1)).ravel()
 
-            scaling = np.minimum(1.0, norm_thres / gradient_norm)
-
-            grad *= scaling[:,np.newaxis]
+            to_clip = gradient_norm > norm_thres
+            scaling = norm_thres / gradient_norm[to_clip]
+            grad[to_clip,:] *= scaling[:,np.newaxis]
 
             gradient_sum = grad.sum(axis=0)
 
             gradient_sum += GaussianMechNoise(eps=eps, delta=delta,
-                l2_sens=norm_thres, shape=gradient_sum.shape)
+                l2_sens=norm_thres*np.sqrt(group_size), 
+                shape=gradient_sum.shape)
 
         else:
             gradient_sum = grad.sum(axis=0)
@@ -608,32 +669,25 @@ def GaussianMechNoise(eps=1, delta=1e-2, l2_sens=1, shape=1):
     sigma = np.sqrt(2*np.log(1.25/delta)) * l2_sens / eps
     return sp.stats.norm.rvs(loc=0, scale=sigma, size=shape)
 
-def PruneGraph(A_combined, A_list, degree_thres):
+def NormClipGraphInPlace(A_csr, max_norm):
+    orig_data = A_csr.data.copy()
+    A_csr.data = A_csr.data ** 2
+    col_sqsum = A_csr.sum(axis=0)
+    to_clip = col_sqsum > (max_norm ** 2)
+    scaling = np.array(max_norm / np.sqrt(col_sqsum)).ravel()
+    A_csr.data = orig_data * scaling[A_csr.indices]
+    return A_csr
 
-    n = A_combined.shape[1]
+def PruneGraph(A_data, A_data_act, A_indptr, A_indices, degree_thres):
+    A_data_pruned = A_data.copy()
+    A_data_act_pruned = A_data_act.copy()
 
-    # Prune A_combined
-    logger.info("Prune combined contact graph")
+    n = len(A_indptr) - 1
     for cidx in tqdm(range(n), unit_scale=1, mininterval=6):
-        st, en = A_combined.indptr[cidx:cidx+2]
+        st, en = A_indptr[cidx:cidx+2]
         if en - st > degree_thres: # Zero out edges except top degree_thres
-            order = np.argsort(A_combined.data[st:en])[::-1]
-            A_combined.data[st + order[degree_thres:]] = 0
-    A_combined.eliminate_zeros()
+            order = np.argsort(A_data_pruned[st:en])[::-1]
+            A_data_pruned[st + order[degree_thres:]] = 0
+            A_data_act_pruned[:,st + order[degree_thres:]] = 0    
 
-    # Prune individual A
-    logger.info("Prune individual contact graph (one for activity type)")
-    for i in range(len(A_list)):
-        logger.info(f"Activity type {i}")
-
-        for cidx in tqdm(range(n), unit_scale=1, mininterval=6):
-            st, en = A_list[i].indptr[cidx:cidx+2]
-            st2, en2 = A_combined.indptr[cidx:cidx+2]
-            
-            filt = np.array([idx not in A_combined.indices[st2:en2] for idx in A_list[i].indices[st:en]], dtype=bool)
-
-            A_list[i].data[st:en][filt] = 0
-
-        A_list[i].eliminate_zeros()
-
-    return A_combined, A_list
+    return A_data_pruned, A_data_act_pruned
