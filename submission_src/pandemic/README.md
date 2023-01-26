@@ -7,26 +7,24 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 
 - Centralized solution uses Python:
 
-  - [solution_centralized.py](solution_centralized.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., fit()) and implements MusCat's general workflow.
+  - [solution_centralized.py](solution_centralized.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`) and implements MusCat's general workflow.
 
-  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCat's workflow (called by solution_centralize.py). 
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCat's workflow (called by [solution_centralized.py](solution_centralized.py)).
 
-- Federated solution uses both Python and Go. The latter is needed for cryptographic operations, and uses a custom fork of [tuneinsight/lattigo](https://github.com/tuneinsight/lattigo) library for lattice-based homomorphic encryption.
+- Federated solution uses both Python and Go. The latter is needed for cryptographic operations, and uses a [custom fork](https://github.com/hcholab/lattigo/tree/petschal) of [Lattigo](https://github.com/tuneinsight/lattigo) library for lattice-based homomorphic encryption.
 
-  - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., fit(), configure_fit()...) and implements MusCat's general federated workflow.
-      - fit() in class TrainClient implements the core of our model training, executed by the clients, with the computation of global statistics (W0-W3 in Section 3.4 of our manuscript) and the poisson regression (W4). 
-      - aggregate_fit() in class TrainStrategy defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients.
-      - fit() and evaluate() in class TestClient implement the clients' part of the inference (W5 in our manuscript)
-      - configure_fit and aggregate_fit() define the server functions for the same operations
-      
+  - [solution_federated.py](solution_federated.py) represents the entrypoint to the solution. It defines the main functions required by the framework (e.g., `fit()`, `configure_fit()`, ...) and implements MusCat's general federated workflow.
+      - `fit()` in class TrainClient implements the core of our model training, executed by the clients, with the computation of global statistics (**W0-W3** in Section 3.4 of our manuscript) and the poisson regression (**W4**).
+      - `aggregate_fit()` in class TrainStrategy defines the operations of the server, i.e., securely aggregating encrypted information for the collaboration among the clients.
+      - `fit()` and `evaluate()` in class TestClient implement the clients' part of the inference (**W6** in our manuscript)
+      - `configure_fit()` and `aggregate_fit()` define the server functions for the same operations
 
-  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCat's federated workflow (called by solution_federated.py).
+  - [muscat_model.py](muscat_model.py) constructs the MusCAT model and defines each step of MusCat's federated workflow (called by [solution_federated.py](solution_federated.py)).
 
-  - [muscat_privacy.py](muscat_privacy.py) contains static parameters and functions specific for
-    Differential Privacy (DP)
+  - [muscat_privacy.py](muscat_privacy.py) contains static parameters and functions specific for Differential Privacy (DP)
 
   - [muscat_workflow.py](muscat_workflow.py) contains static parameters for
-    the secure and plaintext training and testing workflows. It notably defines the training parameters and the order of the rounds to train a model. 
+    the secure and plaintext training and testing workflows. It notably defines the training parameters and the order of the rounds to train a model.
 
   - [mhe_routines.go](mhe_routines.go) represents the Go entrypoint that
     parses command-line arguments passed to it from Python, and executes
@@ -108,6 +106,9 @@ and to (re)generate `submission.zip`:
   export CPU_OR_GPU=cpu
   export SUBMISSION_TRACK=pandemic
   export SUBMISSION_TYPE=centralized # or federated
+
+  # Inject Docker resource limits to simulate the evaluation environment
+  export GPU_ARGS="--cpus=6 --memory=56g"
 
   # (Re)build the Go code directly, if you're on a Linux system with Go 1.19 installed
   ( cd "submission_src/pandemic" &&  go build )
