@@ -68,8 +68,6 @@ If you would rather like to reproduce the binary from Go code, you can do so usi
 - `docker run --rm -t --platform linux/amd64 -v "$PWD:/work" -w /work golang:1.19 go build`
   if you are on **macOS**, to ensure binary compatibility with the runtime Linux environment
 
-Additionally, please use `CPU_OR_GPU=cpu` for the runtime.
-
 ### Local testing/development
 
 The following instructions are _only_ needed for local testing/development,
