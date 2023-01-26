@@ -1,4 +1,4 @@
-# U.S. PETs Prize Challenge: Phase 2 (Pandemic Forecasting–Federated)
+# U.S. PETs Prize Challenge: Phase 2 (Pandemic) Code Guide
 
 ## Code layout and methodology
 
