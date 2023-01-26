@@ -36,7 +36,7 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
     ```
 
     where `<command>` designates a step in the workflow,
-    and `<arg1> [<arg2> ...]` represents various parameters, which
+    and `<arg1> [<arg2> ...]` represents various arguments, which
     specify either path(s) to the data directory(s), or numeric parameters. It currently enables the setup of the cryptographic parameters and the execution of the *Collective Aggregation and Decryption* (defined in multiple operations for the clients and for the server).
 
   - [mhe/crypto.go](mhe/crypto.go) contains cryptographic utilities
