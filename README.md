@@ -1,6 +1,6 @@
 # MusCAT
 
-This repository includes software for Team MusCAT's solution to the U.S. PETs Prize Challenge Phase 2 (Pandemic Forecasting). 
+This repository includes software for Team MusCAT's solution to the U.S. PETs Prize Challenge Phase 2 (Pandemic Forecasting).
 
 ## Problem Setting
 
@@ -76,11 +76,9 @@ Our solution is implemented in Python and Go.
 
 2. Install Docker and run the following command:
    ```sh
-   export SUBMISSION_TYPE=centralized # or federated
    docker run --rm -it \
-     --env SUBMISSION_TRACK=${SUBMISSION_TYPE} \
-     --mount type=bind,source="$(pwd)"/data/${SUBMISSION_TYPE},target=/code_execution/data,readonly \
-     ghcr.io/hhcho/muscat ${SUBMISSION_TYPE}
+     --mount type=bind,source="$(pwd)"/data,target=/code_execution/data,readonly \
+     ghcr.io/hhcho/muscat centralized # or federated
    ```
 
 ## Local testing/development
