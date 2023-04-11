@@ -1,4 +1,4 @@
-module github.com/hhcho/petchal
+module github.com/hhcho/muscat
 
 go 1.19
 

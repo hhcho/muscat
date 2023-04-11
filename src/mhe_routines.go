@@ -13,7 +13,7 @@ import (
 	"log"
 	"runtime/pprof"
 
-	"github.com/hhcho/petchal/mhe"
+	"github.com/hhcho/muscat/mhe"
 	"github.com/ldsec/lattigo/v2/ckks"
 )
 

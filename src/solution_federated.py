@@ -55,7 +55,7 @@ TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 
 def run(*args: Union[str, Path]):
     """ Runs Go subprocess with specified args """
-    exec_path = os.path.join(os.path.dirname(__file__), 'petchal')
+    exec_path = os.path.join(os.path.dirname(__file__), 'muscat')
     subprocess.run([exec_path, *[str(arg) for arg in args]], check=True)
 
 # With original ciphertext data to decrypt in inFile and intermediate
@@ -297,7 +297,7 @@ class TrainClient(fl.client.NumPyClient):
             np.save(self.client_dir / "max_indices.npy", np.array([max_res, max_actloc]))
 
             logger.info("Load data")
-            
+
             actassign = pd.read_csv(self.activity_location_assignment_data_path)
             Ytrain, id_map = load_disease_outcome(self.client_dir, self.disease_outcome_data_path,
                                                   priv.infection_duration_max)
@@ -480,7 +480,7 @@ class TrainClient(fl.client.NumPyClient):
                 actassign = pd.read_csv(self.activity_location_assignment_data_path)
                 popnet = pd.read_csv(self.population_network_data_path)
                 num_clients = np.load(self.client_dir / "num_clients.npy")
-            
+
                 model = MusCATModel(PRIVACY_PARAMS, num_clients)
 
                 logger.info("Fit disease model using aggregate statistics")
@@ -522,7 +522,7 @@ class TrainClient(fl.client.NumPyClient):
                 train_feat = np.load(self.client_dir / "train_feat.npy")
                 train_label = np.load(self.client_dir / "train_label.npy")
 
-            
+
             logger.info("Initialize model parameters")
 
             model.num_days_for_pred = NUM_DAYS_FOR_PRED
@@ -641,7 +641,7 @@ class TrainClient(fl.client.NumPyClient):
                     vec = collective_decrypt_final_step(self.client_dir, enc)
 
                     gradient_sum, sample_count = vec[:nfeat+1], vec[nfeat+1]
-                    
+
                 logger.info(f"grad: {gradient_sum}")
                 logger.info(f"sample_count: {sample_count}")
                 logger.info(f"prev weights: {model.weights}")
@@ -657,10 +657,10 @@ class TrainClient(fl.client.NumPyClient):
 
                 m_hat = model.adam_m / (1 - beta1 ** model.adam_counter)
                 v_hat = model.adam_v / (1 - beta2 ** model.adam_counter)
-            
+
                 model.weights -= ADAM_LEARN_RATE * m_hat / (np.sqrt(v_hat) + 1e-8)
                 # model.weights -= SGD_LEARN_RATE * grad
-                
+
                 logger.info(f"new weights: {model.weights}")
 
             logger.info("Save model")
