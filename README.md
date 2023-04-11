@@ -35,7 +35,7 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
     This takes the form:
 
     ```sh
-    petchal <command> <arg1> [<arg2> ...]
+    muscat <command> <arg1> [<arg2> ...]
     ```
 
     where `<command>` designates a step in the workflow,
@@ -55,53 +55,27 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
   - [go.mod](go.mod) and [go.sum](go.sum) configure third-party Go
     dependencies.
 
-## Building
+## Running
 
-Our solution incorporates both Python and Go source code, along with the Go binary named `petchal`, which is pre-compiled from this code.
+1. Download and partition the `va-*` data files as described in
+   the `pandemic-partitioning-example.ipynb` notebook
+   on the [Data Download page](https://www.drivendata.org/competitions/103/nist-federated-learning-2-pandemic-forecasting-federated/data/).
+
+2. Install Docker and run the following command:
+   ```sh
+   export SUBMISSION_TYPE=centralized # or federated
+   docker run --rm -it \
+     --env SUBMISSION_TRACK=${SUBMISSION_TYPE} \
+     --mount type=bind,source="$(pwd)"/data/${SUBMISSION_TYPE},target=/code_execution/data,readonly \
+     ghcr.io/hhcho/muscat ${SUBMISSION_TYPE}
+   ```
+
+## Local testing/development
+
+```sh
+docker build --platform linux/amd64 -t muscat .
+```
+
+Our solution incorporates both Python and Go source code, along with the Go binary named `muscat`, which is pre-compiled from this code.
 
 We suggest that this solution is executed as-is with these files, to ensure it works as tested in lab conditions.
-
-### Rebuilding Go code
-
-If you would rather like to reproduce the binary from Go code, you can do so using either:
-
-- `go build` command, if you are on a **Linux** system with **Go 1.19** installed
-
-- `docker run --rm -t --platform linux/amd64 -v "$PWD:/work" -w /work golang:1.19 go build`
-  if you are on **macOS**, to ensure binary compatibility with the runtime Linux environment
-
-### Local testing/development
-
-The following instructions are _only_ needed for local testing/development,
-and to (re)generate `submission.zip`:
-
-- Clone this repository:
-
-  ```sh
-  cd $(mktemp -d) # use a temporary (or an empty) directory
-  git clone https://github.com/drivendataorg/pets-prize-challenge-runtime .
-  ```
-
-- Download and partition the `va-*` data files as described in
-  the `pandemic-partitioning-example.ipynb` notebook
-  on the [Data Download page](https://www.drivendata.org/competitions/103/nist-federated-learning-2-pandemic-forecasting-federated/data/).
-
-- Build and test the Docker image:
-
-  ```sh
-  # Prepare runtime variables
-  export SUBMISSION_TYPE=centralized # or federated
-  export IMAGE=muscat
-
-  # Build Docker image (if needed)
-  docker build --platform linux/amd64 -t "${IMAGE}" .
-
-  # Run Docker image
-  docker run \
-    --rm -it \
-    --env SUBMISSION_TRACK=${SUBMISSION_TYPE} \
-    --mount type=bind,source="$(pwd)"/data/${SUBMISSION_TYPE},target=/code_execution/data,readonly \
-    --name "${IMAGE}" \
-    "${IMAGE}" \
-    "${SUBMISSION_TYPE}"
-  ```
