@@ -10,7 +10,8 @@ ENV CONDA_VERSION=4.10.3-2 \
     LANG=C.UTF-8  \
     LC_ALL=C.UTF-8 \
     CONDA_DIR=/opt/conda \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    SUBMISSION_TRACK=pandemic
 
 ENV HOME=/home/${RUNTIME_USER} \
     PATH=${CONDA_DIR}/bin:${PATH}
@@ -27,7 +28,6 @@ RUN echo "Creating ${RUNTIME_USER} user..." \
     && chown -R ${RUNTIME_USER}:${RUNTIME_USER} /opt /code_execution
 
 # Install base packages
-ARG DEBIAN_FRONTEND=noninteractive
 COPY runtime/apt.txt /home/${RUNTIME_USER}
 RUN rm -f /etc/apt/sources.list.d/cuda.list && rm -f /etc/apt/sources.list.d/nvidia-ml.list
 RUN echo "Installing base packages..." \
@@ -90,7 +90,6 @@ RUN go build
 # Build the final image
 FROM runtime AS final
 
-ENV SUBMISSION_TRACK=pandemic
 COPY --chown=appuser:appuser --from=go /src/muscat /code_execution/src/
 
 ENTRYPOINT ["/bin/bash", "/code_execution/entrypoint.sh"]
