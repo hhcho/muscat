@@ -75,7 +75,3 @@ for privacy-preserving pandemic risk prediction. It is implemented in Python and
 ```sh
 docker build --platform linux/amd64 -t muscat .
 ```
-
-Our solution incorporates both Python and Go source code, along with the Go binary named `muscat`, which is pre-compiled from this code.
-
-We suggest that this solution is executed as-is with these files, to ensure it works as tested in lab conditions.
