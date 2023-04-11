@@ -23,7 +23,7 @@ jobs:
       - name: Set up QEMU for multi-platform builds
         uses: docker/setup-qemu-action@v2
 
-      - name: Set up Docker Buildx for Linux and macOS
+      - name: Set up Docker Buildx for multi-platform builds
         uses: docker/setup-buildx-action@v2
 
       - name: Extract metadata (tags, labels) for Docker
@@ -31,6 +31,9 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
 
       - name: Build Docker image
         uses: docker/build-push-action@v4
