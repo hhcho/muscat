@@ -9,12 +9,10 @@ packages = [
     # these are problem libraries that don't always seem to import, mostly due
     # to dependencies outside the python world
     "flwr",
-    "keras",
     "numpy",
     "pandas",
     "scipy",
     "sklearn",
-    "tensorflow",
     "torch",
 ]
 
