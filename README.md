@@ -1,4 +1,4 @@
-# U.S. PETs Prize Challenge Phase 2 (Pandemic Forecasting): MusCAT Code Guide
+# MusCAT Code Guide
 
 ## Components and Methodology
 
