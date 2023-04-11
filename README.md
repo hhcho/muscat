@@ -76,8 +76,7 @@ Our solution is implemented in Python and Go.
 
 2. Install Docker and run the following command:
    ```sh
-   docker run --rm -it \
-     --mount type=bind,source="$(pwd)"/data,target=/code_execution/data,readonly \
+   docker run --rm -it -v "$(pwd)/data":/code_execution/data:ro \
      ghcr.io/hhcho/muscat centralized # or federated
    ```
 
