@@ -1,9 +1,4 @@
 data/
-submission/
-
-### TODO REMOVE THIS, only needed for testing locally
-submission_src/pandemic/pets-private
-
 
 ## https://github.com/github/gitignore/blob/main/Python.gitignore
 
