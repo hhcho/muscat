@@ -2,7 +2,7 @@ FROM nvidia/cuda:11.0.3-base-ubuntu20.04
 # adapated from build file for pangeo images
 # https://github.com/pangeo-data/pangeo-docker-images
 
-ARG CPU_OR_GPU=gpu
+ARG CPU_OR_GPU=cpu
 
 ENV CONDA_VERSION=4.10.3-2 \
     CONDA_ENV=condaenv \

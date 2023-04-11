@@ -16,7 +16,6 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE: ${{ github.repository }}
-      RUNTIME: cpu
 
     steps:
       - uses: actions/checkout@v2
