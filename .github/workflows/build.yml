@@ -3,7 +3,7 @@ name: build
 on:
   push:
     branches: [main]
-    paths: ["runtime/**", ".github/workflows/build.yml"]
+    paths: ["Dockerfile", "runtime/**", "src/**", ".github/workflows/build.yml"]
 
 jobs:
   build:
