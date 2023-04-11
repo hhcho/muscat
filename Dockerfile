@@ -88,9 +88,17 @@ COPY src/ .
 RUN go build
 
 # Build the final image
-FROM runtime
+FROM runtime AS final
 
 ENV SUBMISSION_TRACK=pandemic
 COPY --chown=appuser:appuser --from=go /src/muscat /code_execution/src/
 
 ENTRYPOINT ["/bin/bash", "/code_execution/entrypoint.sh"]
+
+# Test the final image
+FROM final
+
+RUN conda run --no-capture-output -n condaenv python -m pytest tests
+
+# Use the final image
+FROM final
