@@ -86,18 +86,6 @@ endif
 pull:
 	docker pull ${REGISTRY_IMAGE}
 
-## Creates a submission/submission.zip file from the source code in examples_src
-pack-example:
-# Don't overwrite so no work is lost accidentally
-ifeq (${SUBMISSION_TRACK},)
-	$(error Specify the SUBMISSION_TRACK=fincrime or pandemic)
-endif
-ifneq (,$(wildcard ./submission/submission.zip))
-	$(error You already have a submission/submission.zip file. Rename or remove that file (e.g., rm submission/submission.zip).)
-endif
-	mkdir -p submission/
-	cd examples_src/${SUBMISSION_TRACK}; zip -r ../../submission/submission.zip ./*
-
 ## Creates a submission/submission.zip file from the source code in submission_src
 pack-submission:
 ifeq (${SUBMISSION_TRACK},)
