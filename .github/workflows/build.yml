@@ -40,11 +40,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Check image size
-        run: |
-          docker image list $REGISTRY/$IMAGE
-
-      - name: Tests packages in container
+      - name: Test packages inside a container
         run: |
           docker run --entrypoint /bin/bash $REGISTRY/$IMAGE \
             -c "conda run --no-capture-output -n condaenv python -m pytest tests"
