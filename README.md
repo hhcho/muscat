@@ -70,13 +70,19 @@ Our solution is implemented in Python and Go.
 
 ## Running
 
-1. Download and partition the `va-*` data files as described in
-   the `pandemic-partitioning-example.ipynb` notebook
-   on the [Data Download page](https://www.drivendata.org/competitions/103/nist-federated-learning-2-pandemic-forecasting-federated/data/).
+1. Prepare a dataset. Sample data can be downloaded from
+   https://net.science/files/resources/datasets/PET_Prize_PandemicForecasting/
+   (for example, `va_synthetic_population_and_outbreak_ver_1_9.zip` dataset).
+
+   After downloading and unpacking the dataset, prepare it according to
+   [pandemic-partitioning-example.ipynb](pandemic-partitioning-example.ipynb)
+   Jupyter notebook.
 
 2. Install Docker and run the following command:
    ```sh
-   docker run --rm -it -v "$(pwd)/data":/code_execution/data:ro \
+   docker run --rm -it \
+     -v "$(pwd)/data/pandemic":/code_execution/data:ro \
+     -v "$(pwd)/submission":/code_execution/submission \
      ghcr.io/hhcho/muscat centralized # or federated
    ```
 
