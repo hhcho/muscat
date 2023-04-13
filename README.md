@@ -95,8 +95,10 @@ Our solution is implemented in Python and Go.
 3. The logs and final results will be stored under `submission/`
    in your working directory.
 
-## Local testing/development
+## Development
+
+When making changes to the code, you can rebuild the Docker image locally using
 
 ```sh
-docker build --platform linux/amd64 -t muscat .
+docker build --platform linux/amd64 -t ghcr.io/hhcho/muscat .
 ```
