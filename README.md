@@ -92,7 +92,7 @@ Our solution is implemented in Python and Go.
      ghcr.io/hhcho/muscat centralized # or federated
    ```
 
-3. For troubleshooting, the logs will be stored under `submission/`
+3. The logs and final results will be stored under `submission/`
    in your working directory.
 
 ## Local testing/development
