@@ -77,19 +77,23 @@ Our solution is implemented in Python and Go.
 
 1. Prepare a dataset. Sample data can be downloaded from
    https://net.science/files/resources/datasets/PET_Prize_PandemicForecasting/
-   (for example, `va_synthetic_population_and_outbreak_ver_1_9.zip` dataset).
+   (e.g. `va_synthetic_population_and_outbreak_ver_1_9.zip`).
 
-   After downloading and unpacking the dataset, prepare it according to
+   After downloading and unpacking a dataset, prepare it according to
    [pandemic-partitioning-example.ipynb](pandemic-partitioning-example.ipynb)
-   Jupyter notebook.
+   notebook.
 
 2. Install Docker and run the following command:
+
    ```sh
    docker run --rm -it \
      -v "$(pwd)/data/pandemic":/code_execution/data:ro \
      -v "$(pwd)/submission":/code_execution/submission \
      ghcr.io/hhcho/muscat centralized # or federated
    ```
+
+3. For troubleshooting, the logs will be stored under `submission/`
+   in your working directory.
 
 ## Local testing/development
 
