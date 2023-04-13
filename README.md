@@ -70,6 +70,11 @@ Our solution is implemented in Python and Go.
 
 ## Running
 
+0. Make sure you're working on a machine with sufficient memory -
+   64GB or more is recommended, but it will depend on the overall data size.
+   On macOS, you may need to increase virtual machine memory
+   in Docker Desktop settings.
+
 1. Prepare a dataset. Sample data can be downloaded from
    https://net.science/files/resources/datasets/PET_Prize_PandemicForecasting/
    (for example, `va_synthetic_population_and_outbreak_ver_1_9.zip` dataset).
