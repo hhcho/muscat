@@ -1,18 +1,18 @@
 # MusCAT
 
-This repository includes software for Team MusCAT's solution to the U.S. PETs Prize Challenge Phase 2 (Pandemic Forecasting).
+This repository provides software for Team MusCAT's solution to the [U.S. PETs Prize Challenge](https://petsprizechallenges.com/) (Pandemic Forecasting). Team MusCAT won [first place](https://drivendata.co/blog/federated-learning-pets-prize-winners-phase1) for the white paper (Phase 1) and [second place](https://drivendata.co/blog/federated-learning-pets-prize-winners-phases-2-3) in the final stage (Phase 2) of the Challenge.
 
 ## Problem Setting
 
-Predictive models that can assess an individual's risk of infection in a given day can be a useful tool for pandemic response. Training these models at scale can be challenging due to difficulties in sharing personally identifying information across administrative or organizational boundaries. The Challenge task was to develop a federated learning system that can jointly leverage a distributed set of private datasets, including a broad range of information about the individuals (e.g., demographics, daily activities, and social contacts), to train and apply risk prediction models while rigorously protecting the privacy of individuals in the dataset. See [here](https://www.drivendata.org/competitions/103/nist-federated-learning-2-pandemic-forecasting-federated/) for the official Challenge page introducing the problem.
+Predictive models that can assess individuals' daily infection risks can be a useful tool for pandemic response. Training these models at scale can be challenging due to difficulties in sharing personally identifying information across different data collection sites. The Challenge task was to develop a federated learning system that can jointly leverage distributed private datasets to train and apply risk prediction models with rigorous privacy protection. See [here](https://www.drivendata.org/competitions/103/nist-federated-learning-2-pandemic-forecasting-federated/) for the official Challenge page introducing the problem.
 
 ## Our Technical Approach
 
-We introduce MusCAT, a multi-scale federated system for privacy-preserving pandemic risk prediction. We leverage the key insight that predictive information can be divided into components operating at different scales of the problem, such as individual contacts, shared locations, and population-level risks. These components are individually learned using a combination of privacy-enhancing technologies to best optimize the tradeoff between privacy and model accuracy. Based on the Challenge dataset, we show that our solution enables improved risk prediction with formal privacy guarantees, while maintaining practical runtimes even with many federation units.
+We introduce MusCAT, a multi-scale federated system for privacy-preserving pandemic risk prediction. We leverage the key insight that predictive information can be divided into components operating at different scales of the problem, including individual contacts, shared locations, and population-level risks. These components are individually learned using a combination of privacy-enhancing technologies to best optimize the tradeoff between privacy and model accuracy. Based on the Challenge dataset, we show that our solution enables improved risk prediction with formal privacy guarantees, while maintaining practical runtimes even with many federation units.
 
-![Graphical illustration of MusCAT](https://www.dropbox.com/s/s7tgd1unyk7pbw6/PETsChallenge_MusCAT_Graphic.png?dl=0)
+![Graphical illustration of MusCAT](img/muscat.png)
 
-Our white paper describing the solution is available [here](https://www.dropbox.com/s/dzyc8himjtcu05j/PETsChallenge_MusCAT_Report.pdf?dl=0)
+Our white paper describing the solution is available [here](https://www.dropbox.com/s/dzyc8himjtcu05j/PETsChallenge_MusCAT_Report.pdf?dl=0).
 
 ## Software Components and Methodology
 
@@ -102,3 +102,8 @@ When making changes to the code, you can rebuild the Docker image locally using
 ```sh
 docker build --platform linux/amd64 -t ghcr.io/hhcho/muscat .
 ```
+
+## Questions about software
+
+- Denis Loginov, denis@broadinstitute.org
+- Hoon Cho, hhcho@broadinstitute.org
