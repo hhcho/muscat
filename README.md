@@ -86,7 +86,7 @@ Our solution is implemented in Python and Go.
 2. Install Docker and run the following command:
 
    ```sh
-   docker run --rm -it \
+   docker run --rm -it --pull always \
      -v "$(pwd)/data/pandemic":/code_execution/data:ro \
      -v "$(pwd)/submission":/code_execution/submission \
      ghcr.io/hhcho/muscat centralized # or federated
