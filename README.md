@@ -1,6 +1,6 @@
-![build status](https://github.com/hhcho/muscat/actions/workflows/build.yml/badge.svg)
-
 # MusCAT
+
+![build status](https://github.com/hhcho/muscat/actions/workflows/build.yml/badge.svg)
 
 This repository provides software for Team MusCAT's solution to the [U.S. PETs Prize Challenge](https://petsprizechallenges.com/) (Pandemic Forecasting). Team MusCAT won [first place](https://drivendata.co/blog/federated-learning-pets-prize-winners-phase1) for the white paper (Phase 1) and [second place](https://drivendata.co/blog/federated-learning-pets-prize-winners-phases-2-3) in the final stage (Phase 2) of the Challenge.
 
