@@ -501,7 +501,7 @@ func GenerateRotKeys(slots int, smallDim int, babyFlag bool) []RotationType {
 	return rotations
 }
 
-// GetSlots gets the prec parameters value
+// GetPrec gets the prec parameters value
 func (cp *CryptoParams) GetPrec() uint {
 	return cp.prec
 }
