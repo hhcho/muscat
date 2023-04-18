@@ -53,10 +53,12 @@ TEST_ROUNDS = workflow.SECURE_TEST_ROUNDS
 # TRAIN_ROUNDS = workflow.DEBUG_ROUNDS
 # TEST_ROUNDS = workflow.EMPTY
 
+
 def run(*args: Union[str, Path]):
     """ Runs Go subprocess with specified args """
     exec_path = os.path.join(os.path.dirname(__file__), 'muscat')
     subprocess.run([exec_path, *[str(arg) for arg in args]], check=True)
+
 
 # With original ciphertext data to decrypt in inFile and intermediate
 # aggregated data sent from server in enc, finish collective decryption
@@ -78,6 +80,7 @@ def collective_decrypt_final_step(client_dir, enc):
 
     return vec
 
+
 # Take a list of ndarrays and transform into
 # encrypted binary data
 def encrypt_local_ndarrays(client_dir, data_list):
@@ -93,10 +96,16 @@ def encrypt_local_ndarrays(client_dir, data_list):
 
     return enc
 
+
 def ndarrays_to_fit_configuration(round_num: int, arrays: List[np.ndarray], clients: List[ClientProxy]
 ) -> List[Tuple[ClientProxy, FitIns]]:
+    """
+    Utility function to convert ndarrays into fit_configuration
+    structure expected by the Flower server
+    """
     fit_ins = fl.common.FitIns(fl.common.ndarrays_to_parameters(arrays), {"round": round_num})
     return [(client, fit_ins) for client in clients]
+
 
 def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path, max_duration: int = -1):
 
@@ -1208,6 +1217,29 @@ class TestClient(fl.client.NumPyClient):
     # TestClient
     def fit(self, parameters: List[np.ndarray], config: dict
     ) -> Tuple[List[np.ndarray], int, dict]:
+        """Test the provided parameters using the locally held dataset.
+
+        Parameters
+        ----------
+        parameters : NDArrays
+            The current (global) model parameters.
+        config : Dict[str, Scalar]
+            Configuration parameters which allow the
+            server to influence training on the client. It can be used to
+            communicate arbitrary values from the server to the client, for
+            example, to set the number of (local) training epochs.
+
+        Returns
+        -------
+        parameters : NDArrays
+            The locally updated model parameters.
+        num_examples : int
+            The number of examples used for training.
+        metrics : Dict[str, Scalar]
+            A dictionary mapping arbitrary string keys to values of type
+            bool, bytes, float, int, or str. It can be used to communicate
+            arbitrary values back to the server.
+        """
 
         round_num = int(config['round'])
         round_prot = TEST_ROUNDS[round_num]
@@ -1573,6 +1605,25 @@ class TestStrategy(fl.server.strategy.Strategy):
     def configure_fit(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager,
     ) -> List[Tuple[ClientProxy, FitIns]]:
+        """Configure the next round of testing.
+
+        Parameters
+        ----------
+        server_round : int
+            The current round of federated learning.
+        parameters : Parameters
+            The current (global) model parameters.
+        client_manager : ClientManager
+            The client manager which holds all currently connected clients.
+
+        Returns
+        -------
+        fit_configuration : List[Tuple[ClientProxy, FitIns]]
+            A list of tuples. Each tuple in the list identifies a `ClientProxy` and the
+            `FitIns` for this particular `ClientProxy`. If a particular `ClientProxy`
+            is not included in this list, it means that this `ClientProxy`
+            will not participate in the next round of federated learning.
+        """
 
         round_num = server_round
         round_prot = TEST_ROUNDS[round_num]
@@ -1600,6 +1651,36 @@ class TestStrategy(fl.server.strategy.Strategy):
         self, server_round: int, results: List[Tuple[ClientProxy, FitRes]],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], dict]:
+        """Aggregate test results.
+
+        Parameters
+        ----------
+        server_round : int
+            The current round of federated learning.
+        results : List[Tuple[ClientProxy, FitRes]]
+            Successful updates from the previously selected and configured
+            clients. Each pair of `(ClientProxy, FitRes)` constitutes a
+            successful update from one of the previously selected clients. Not
+            that not all previously selected clients are necessarily included in
+            this list: a client might drop out and not submit a result. For each
+            client that did not submit an update, there should be an `Exception`
+            in `failures`.
+        failures : List[Union[Tuple[ClientProxy, FitRes], BaseException]]
+            Exceptions that occurred while the server was waiting for client
+            updates.
+
+        Returns
+        -------
+        parameters : Optional[Parameters]
+            If parameters are returned, then the server will treat these as the
+            new global model parameters (i.e., it will replace the previous
+            parameters with the ones returned from this method). If `None` is
+            returned (e.g., because there were only failures and no viable
+            results) then the server will no update the previous model
+            parameters, the updates received in this round are discarded, and
+            the global model parameters remain the same.
+        metrics : dict
+        """
 
         round_num = server_round
         round_prot = TEST_ROUNDS[round_num]
