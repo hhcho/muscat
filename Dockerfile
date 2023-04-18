@@ -18,7 +18,7 @@ ENV HOME=/home/${RUNTIME_USER} \
 
 # ======================== root ========================
 # initialize paths we will use
-RUN mkdir -p /code_execution/submission
+RUN mkdir -p /code_execution
 
 # Create appuser user, permissions, add conda init to startup script
 RUN echo "Creating ${RUNTIME_USER} user..." \
@@ -80,8 +80,6 @@ COPY --chown=appuser:appuser runtime/entrypoint.sh /code_execution/entrypoint.sh
 COPY --chown=appuser:appuser runtime/toprc /home/${RUNTIME_USER}/.config/procps/toprc
 COPY --chown=appuser:appuser src/*.py /code_execution/src/
 
-VOLUME /code_execution/submission
-
 # Build Go package
 FROM golang:1.19 AS go
 
@@ -94,7 +92,7 @@ FROM runtime AS final
 
 COPY --chown=appuser:appuser --from=go /src/muscat /code_execution/src/
 
-ENTRYPOINT ["/bin/bash", "/code_execution/entrypoint.sh"]
+ENTRYPOINT ["/code_execution/entrypoint.sh"]
 
 # Test the final image
 FROM final
@@ -103,3 +101,7 @@ RUN conda run --no-capture-output -n condaenv python -m pytest tests
 
 # Use the final image
 FROM final
+
+# execute the entrypoint as root, in order to fix permissions
+# inside the submission folder; we switch the user back afterwards
+USER root

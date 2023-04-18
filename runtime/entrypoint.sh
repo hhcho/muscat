@@ -1,6 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -euxo pipefail
+
+# fix submission folder permissions,
+# then restart the script as the runtime user
+if [ "$EUID" = 0 ]; then
+    chmod 777 submission
+    exec gosu "$RUNTIME_USER" "$0" "$@"
+fi
 
 mon () {
     date +%Y-%m-%dT%H:%M:%S

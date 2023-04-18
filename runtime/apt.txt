@@ -3,5 +3,6 @@ g++
 gcc
 git
 gnupg2
+gosu
 sysstat
 tree
