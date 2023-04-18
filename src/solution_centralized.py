@@ -18,7 +18,10 @@ ADAM_LEARN_RATE = 0.005
 SGD_LEARN_RATE = 0.01
 
 def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path, max_duration: int = -1):
-
+    """
+    Utility function that attempts to load cached training
+    labels and ID map from disk, or otherwise constructs them.
+    """
     id_file = cache_dir / "unique_pids.npy"
     mat_file = cache_dir / "disease_outcome_matrix.npy"
 
@@ -69,14 +72,41 @@ def load_disease_outcome(cache_dir: Path, disease_outcome_data_path: Path, max_d
 
 def fit(
     person_data_path: Path,
-    household_data_path: Path,
-    residence_location_data_path: Path,
-    activity_location_data_path: Path,
+    household_data_path: Path, # not used
+    residence_location_data_path: Path, # not used
+    activity_location_data_path: Path, # not used
     activity_location_assignment_data_path: Path,
     population_network_data_path: Path,
     disease_outcome_data_path: Path,
     model_dir: Path,
 ):
+    """
+    Function that fits the model on the provided training data and saves
+    the model to disk in the provided directory.
+
+    Args:
+        person_data_path (Path): Path to CSV data file for the Person table.
+        household_data_path (Path): Path to CSV data file for the House table.
+        residence_location_data_path (Path): Path to CSV data file for the
+            Residence Locations table.
+        activity_location_data_path (Path): Path to CSV data file for the
+            Activity Locations on table.
+        activity_location_assignment_data_path (Path): Path to CSV data file
+            for the Activity Location Assignments table.
+        population_network_data_path (Path): Path to CSV data file for the
+            Population Network table.
+        disease_outcome_data_path (Path): Path to CSV data file for the Disease
+            Outcome table.
+        model_dir (Path): Path to a directory that is constant between the train
+            and test stages. You must use this directory to save and reload
+            your trained model between the stages.
+        preds_format_path (Path): Path to CSV file matching the format you must
+            write your predictions with, filled with dummy values.
+        preds_dest_path (Path): Destination path that you must write your test
+            predictions to as a CSV file.
+
+    Returns: None
+    """
 
     logger.info("Loading data...")
     person = pd.read_csv(person_data_path)
@@ -110,6 +140,35 @@ def predict(
     preds_format_path: Path,
     preds_dest_path: Path,
 ):
+    """
+    Function that loads the model from the provided directory and performs
+    inference on the provided test data. Predictions should match the provided
+    format and be written to the provided destination path.
+
+    Args:
+        person_data_path (Path): Path to CSV data file for the Person table.
+        household_data_path (Path): Path to CSV data file for the House table.
+        residence_location_data_path (Path): Path to CSV data file for the
+            Residence Locations table.
+        activity_location_data_path (Path): Path to CSV data file for the
+            Activity Locations on table.
+        activity_location_assignment_data_path (Path): Path to CSV data file
+            for the Activity Location Assignments table.
+        population_network_data_path (Path): Path to CSV data file for the
+            Population Network table.
+        disease_outcome_data_path (Path): Path to CSV data file for the Disease
+            Outcome table.
+        model_dir (Path): Path to a directory that is constant between the train
+            and test stages. You must use this directory to save and reload
+            your trained model between the stages.
+        preds_format_path (Path): Path to CSV file matching the format you must
+            write your predictions with, filled with dummy values.
+        preds_dest_path (Path): Destination path that you must write your test
+            predictions to as a CSV file.
+
+    Returns: None
+    """
+
     logger.info("Loading in model parameters...")
     model = MusCATModel()
     model.load(model_dir)
