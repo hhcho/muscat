@@ -18,7 +18,7 @@ ENV HOME=/home/${RUNTIME_USER} \
 
 # ======================== root ========================
 # initialize paths we will use
-RUN mkdir -p /code_execution
+RUN mkdir -p /code_execution/submission
 
 # Create appuser user, permissions, add conda init to startup script
 RUN echo "Creating ${RUNTIME_USER} user..." \
@@ -79,6 +79,8 @@ COPY --chown=appuser:appuser runtime/post_centralized.py /code_execution/post_ce
 COPY --chown=appuser:appuser runtime/entrypoint.sh /code_execution/entrypoint.sh
 COPY --chown=appuser:appuser runtime/toprc /home/${RUNTIME_USER}/.config/procps/toprc
 COPY --chown=appuser:appuser src/*.py /code_execution/src/
+
+VOLUME /code_execution/submission
 
 # Build Go package
 FROM golang:1.19 AS go
