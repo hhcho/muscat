@@ -70,7 +70,7 @@ Our solution is implemented in Python and Go.
   - [go.mod](go.mod) and [go.sum](go.sum) configure third-party Go
     dependencies.
 
-## Running
+## Usage
 
 0. Make sure you're working on a machine with sufficient memory -
    64GB or more is recommended, but it will depend on the overall data size.
@@ -94,8 +94,37 @@ Our solution is implemented in Python and Go.
      ghcr.io/hhcho/muscat centralized # or federated
    ```
 
-3. The logs and final results will be stored under `submission/`
-   in your working directory.
+3. The tool output will be stored under `submission/` folder:
+
+   ```
+   centralized-test.log    centralized-train.log   log.txt
+   cpu_metrics.csv.gz      memory_metrics.csv.gz   metrics.json
+   process_metrics.log.gz  system_metrics.sar.gz
+   predictions             scoring_payload         state
+   ```
+
+   Here, you can use `log.txt` to troubleshoot a failed run.
+
+   `*metrics*` files contain various internal performance metrics.
+
+   `scoring_payload` and `state` store internal state from a run.
+
+   `predictions/<submission_type>/predictions.csv` provides results
+   from a sucessful run:
+
+   ```
+   pid,score
+   195155,0.83926135
+   195156,0.8401405
+   195157,0.8403996
+   195158,0.0
+   ...
+   ```
+
+   Similarly to `predictions_format.csv`, each row here represents
+   a person (with a numeric ID) and their risk score of
+   getting infected during the test period, with a higher score
+   corresponding to higher confidence that they become infected.
 
 ## Development
 
