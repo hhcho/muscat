@@ -20,7 +20,7 @@ func Max(x, y int) int {
 	return x
 }
 
-// CAdd additions two Ciphervectors
+// CAdd adds two Ciphervectors
 func CAdd(cryptoParams *CryptoParams, X CipherVector, Y CipherVector) CipherVector {
 	res := make(CipherVector, len(X)) //equal num of ciphertexts
 	cryptoParams.WithEvaluator(func(eval ckks.Evaluator) error {
