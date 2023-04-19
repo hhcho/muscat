@@ -103,17 +103,12 @@ Our solution is implemented in Python and Go.
    predictions             scoring_payload         state
    ```
 
-   Here, you can use `log.txt` to troubleshoot a failed run.
-
-   `*metrics*` files contain various internal performance metrics.
-
-   `scoring_payload` and `state` store internal state from a run.
-
-   `predictions/<submission_type>/predictions.csv` provides results
-   from a sucessful run:
+   Here, `predictions/<submission_type>/predictions.csv`
+   provides results from a sucessful run:
 
    ```
    pid,score
+   ...
    195155,0.83926135
    195156,0.8401405
    195157,0.8403996
@@ -121,10 +116,16 @@ Our solution is implemented in Python and Go.
    ...
    ```
 
-   Similarly to `predictions_format.csv`, each row here represents
+   Similarly to `predictions_format.csv`, each row represents
    a person (with a numeric ID) and their risk score of
    getting infected during the test period, with a higher score
    corresponding to higher confidence that they become infected.
+
+   If a run fails, you can use `log.txt` to troubleshoot it.
+
+   `*metrics*` files contain various internal performance metrics.
+
+   `scoring_payload` and `state` store internal state from a run.
 
 ## Development
 
