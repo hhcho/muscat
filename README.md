@@ -97,10 +97,10 @@ Our solution is implemented in Python and Go.
 3. The tool output will be stored under `submission/` folder:
 
    ```
-   centralized-test.log    centralized-train.log   log.txt
-   cpu_metrics.csv.gz      memory_metrics.csv.gz   metrics.json
-   process_metrics.log.gz  system_metrics.sar.gz
-   predictions             scoring_payload         state
+   predictions            cpu_metrics.csv.gz      metrics.json
+   centralized-test.log   memory_metrics.csv.gz   scoring_payload
+   centralized-train.log  process_metrics.log.gz  state
+   log.txt                system_metrics.sar.gz
    ```
 
    Here, `predictions/<submission_type>/predictions.csv`
